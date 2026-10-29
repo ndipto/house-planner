@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Day 2 done Oct 29 — typology placer fits options inside the plot (G hard), real toilet sizes (rule 18), rule 7 hard, wishes shape the plan (combined spaces, garden); 45x55 South 2-bed + 40x60 North 3-bed demos all LIVABLE.
+**Status:** Day 2 done Oct 29 — road-relative plot inputs (frontage x depth from road), shallow-band typology for wide plots, orientation wishes place bedrooms; G hard, rule 18 real toilet sizes, rule 7 hard; 40x60 East + 60x40 South + 45x55 South + 40x60 North demos all LIVABLE.
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -10,7 +10,7 @@ This file is the project memory. Muse Code should read it at the start of every 
 
 House Planner is a simple web app for **Bangladesh**, designed by a Bangladeshi architect. The user describes the house they want in plain words:
 
-- Plot width and depth (in feet), which side faces the road, and north direction
+- Road frontage and plot depth from road (in feet; road-relative, not compass), which side faces the road, and north direction
 - Number of bedrooms and number of toilets (1 to bedrooms + 1, no default — the client must enter it)
 - Family needs and wishes in plain words (e.g. "home office", "big kitchen for family gatherings", "elderly parent on ground floor")
 
@@ -23,7 +23,7 @@ This is a **concept tool**, not construction documents. It helps a family see th
 ## How it works (4 steps)
 
 1. **Brief → room program (AI).** Muse Spark, called through the Meta Model API, reads the user's brief and returns structured JSON: for each room its name, type, target area, min/max dimensions, required adjacencies (e.g. kitchen next to dining), orientation preferences (e.g. bedrooms face south/southeast), plus a short "design reasoning" paragraph written in an architect's voice.
-2. **Room program → layout (plain Python, no AI).** Simple, well-commented Python builds THREE options (A/B/C) from the architect's own planning typologies (see Zoning strategy), shaped by the client's wishes (combined spaces placed adjacent as one open space; a wished garden buffers the living room). Geometry is a HARD constraint: nothing is ever placed outside the buildable area — an option that cannot fit is skipped with a clear reason. Every option is checked against the HARD RULES in "Design Rules (from the architect)" below and shows its score plus pass/bend/fail per rule.
+2. **Room program → layout (plain Python, no AI).** Simple, well-commented Python builds THREE options (A/B/C) from the architect's own planning typologies (see Zoning strategy), shaped by the client's wishes (combined spaces placed adjacent as one open space; a wished garden buffers the living room; facing wishes place bedrooms on the correct real-world side). Geometry is a HARD constraint: nothing is ever placed outside the buildable area — an option that cannot fit is skipped with a clear reason. Every option is checked against the HARD RULES in "Design Rules (from the architect)" below and shows its score plus pass/bend/fail per rule.
 3. **Layout → drawing (SVG).** The app draws a clean, dimensioned 2D plan in SVG format with room names, areas, doors, windows, overall dimensions, and a north arrow / scale note.
 4. **Stretch goals (only if time allows):**
    - **Muse Image** generates one exterior concept render from the plan/brief.
@@ -35,7 +35,7 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 
 **Units and scope:** Feet and inches. Single floor only. Plot can be any size the client enters.
 
-**Inputs the user gives:** Plot width and depth, which side faces the road, north direction, number of bedrooms, number of toilets (required, no default, 1 to bedrooms + 1), wishes in plain words.
+**Inputs the user gives:** Road frontage and plot depth from road (road-relative: frontage is the side facing the road), which side faces the road (rotates the drawing, sets real orientation), north direction, number of bedrooms, number of toilets (required, no default, 1 to bedrooms + 1), wishes in plain words.
 
 **Setbacks (defaults, user can edit in the app):** Front 6 ft, each side 1.5 ft, back 4 ft. Simplified, editable defaults — NOT full RAJUK rules. Real setbacks depend on road width and plot area.
 
@@ -79,9 +79,10 @@ Failing any of rules 7, 13-16, or geometry row G (rooms outside the plot / overl
 - THREE-STRIP (main pattern): CENTER strip = public spine front-to-back (foyer/entry with porch outside toward the road, living room, dining, family living; NO corridor; family may take a back veranda). LEFT/RIGHT strips = rooms needing exterior walls (bedrooms, kitchen, toilets), each touching the outer side wall. Bedrooms take corners when possible (master at a back corner); toilets sit between bedrooms against the outer wall (leftover width becomes wardrobe/store); kitchen mid-strip next to dining, door into dining; every side room's door opens into the adjacent center room (bedrooms into family/dining never living, common toilet off dining/family). Side strips narrow to 10 ft when a common bath needs a full-width spine door.
 - NARROW plots (buildable width under 30 ft): TWO strips (center spine + one side strip).
 - L-SHAPE WITH COURT (buildable width 45 ft+ and only when it fits): front wing for foyer/living/dining/kitchen joined to a side wing for family living + bedrooms; landscape/court fills the open corner.
-- THREE OPTIONS side by side: A = three-strip, kitchen WEST in real orientation; B = three-strip mirrored (kitchen other side, master other back corner); C = L-shape when it fits, else a third three-strip variant. Genuinely different; each shows score + pass/bend/fail.
+- WIDE SHALLOW plots (frontage over depth, strips need more depth): SHALLOW TWO-BAND fallback — front band (foyer, living, dining, kitchen side by side, kitchen at an end) + back band (family, common toilet, bedrooms with attached baths, store slice for slack). Toilets keep real widths (rule 18, orientation-free); baths sit at the back with wardrobes in front; the family overlaps a non-kitchen front room so circulation never crosses the kitchen.
+- THREE OPTIONS side by side: A = kitchen west end (real orientation); B = mirrored; C = L-shape when it fits, else a third variant (common toilet on the kitchen side when facing wishes collapse the strips). Genuinely different; each shows score + pass/bend/fail.
 - FITTING LADDER (geometry is hard; skip + message instead of broken plans): full buildable width minus 3 ft veranda margins each side when width allows; living room to a FRONT corner of a side strip next to the foyer (architect's own pattern) so the spine holds only foyer, dining, family; small foyer (about 6 ft deep); wished merges shorten the spine; then min-depths.
-- WISHES SHAPE THE PLAN: "combined X and Y" / "X and Y as one space" / "open-plan X Y" places both adjacent as one open gathering space (living+kitchen repositions; other pairs verified, 6 ft+ shared); "garden with the living room" places a small garden (dashed in the drawing) buffering the living front. Bedrooms never combine (privacy).
+- WISHES SHAPE THE PLAN: "combined X and Y" / "X and Y as one space" / "open-plan X Y" places both adjacent as one open gathering space (living+kitchen repositions; other pairs verified, 6 ft+ shared); "garden with the living room" places a small garden (dashed in the drawing) buffering the living front. Bedrooms never combine (privacy). Orientation wishes ("south facing master bedroom", "bedroom facing east") place that bedroom on the correct real-world side (side strip or front/back end); the common toilet moves opposite a front-most bedroom so it keeps its door; other rooms stay where the typology puts them, noted.
 
 **Orientation preferences (Bangladesh tropical monsoon climate — placer follows in order, reports results):** Bedrooms and living prefer windows facing south/southeast (prevailing breeze); avoid large west-facing openings in bedrooms and living (afternoon heat); the kitchen prefers the WEST side (common Bangladeshi practice: option A takes the west strip, B mirrors it, misses bend rule 13).
 
@@ -110,7 +111,8 @@ Failing any of rules 7, 13-16, or geometry row G (rooms outside the plot / overl
 - Typologies (Oct 29, from the architect's own practice): three-strip main pattern, two-strip under 30 ft buildable, L-shape with court at 45 ft+ when it fits; options A/B/C as above.
 - Bends (Oct 29): soft misses (relaxed sizes, kitchen-west, one window wall, one-sided vent) cost -1 (rule 1: -2/room) and never flip the verdict; only FAILs on 7, 13-16 and G mark UNLIVABLE.
 - Fit + wishes (Oct 29, architect's practice): geometry G is a placement constraint (skip + reason, never overflow); toilet real sizes are rule 18 (not stretched); rule 7 is verdict-hard; living-out front corner, merges, and garden-from-wishes as above. Combined spaces share one open rectangle (dividing wall omitted Day 3).
-- Known honest limits (Oct 29): spine living/dining are often 0-1-sided (rule 17 reports, verdict unaffected); corner bedrooms lose verandas when side margins run under 3 ft (rule 10 reports); narrow 2-bed overconstrains one strip (UNLIVABLE, option C saves 1-bed); shallow plots need the L (three-strip overflows honestly).
+- Road-relative inputs (Oct 29): frontage x depth-from-road; the road side only rotates the drawing and sets real orientation (kitchen west, south rooms, west-wall checks all road-aware). Shallow-band fallback for wide plots (front/back bands as above); facing wishes place bedrooms (front-most bedrooms push stacks off the front wall per rule 8 and keep standard baths per rule 18).
+- Known honest limits (Oct 29): spine living/dining are often 0-1-sided (rule 17 reports, verdict unaffected); corner bedrooms lose verandas when side margins run under 3 ft (rule 10 reports); narrow 2-bed overconstrains one strip (UNLIVABLE, option C saves 1-bed); shallow-band Bedroom 2 opens off the living room (rule 5 reports, option C keeps all bedrooms on dining/family).
 
 ## Tech stack
 
@@ -124,7 +126,7 @@ Project files:
 - `app.py` — Streamlit user interface (Day 1 brief form; Day 2 three options side by side + detail expanders).
 - `ai_program.py` — calls Muse Spark, gets the room program JSON (Day 1).
 - `layout.py` — shared geometry (buckets, rects, porch/verandas) + strict rule checker 1-17/G + scorer + verdict (Day 2).
-- `typology.py` — typology placer: three-strip / two-strip / L-shape, options A/B/C via `build_options` (Day 2).
+- `typology.py` — typology placer: three-strip / two-strip / L-shape / shallow-band fallback, facing wishes, options A/B/C via `build_options` (Day 2).
 - `draw.py` — draws one option's SVG plan (Day 2).
 - `test_layout.py` — typology options + minis + drawing checks, run `python test_layout.py` (Day 2).
 - `requirements.txt` — Python packages needed.
@@ -171,6 +173,7 @@ Update this list as we go (each item: date + one line).
 - [x] Oct 29 (Day 2 update): strict livability checks 13-17 + UNLIVABLE verdict (checker only, placer frozen); demo UNLIVABLE on 13, 14, 16.
 - [x] Oct 29 (Day 2 update): three-strip typology placer + 3 options side by side (typology.py replaces the band placer; bends, relaxed sizes, G joins verdict); 40x60 North 3/3 all LIVABLE.
 - [x] Oct 29 (Day 2 update): fit to plot (G hard, living-out, small foyer, skip + message), real toilet sizes (rule 18), rule 7 hard, wishes shape layout (open plan, garden); 45x55 South 2/2 + 40x60 North 3/3 all LIVABLE.
+- [x] Oct 29 (Day 2 update): road-relative plot inputs, wide plots, orientation wishes (frontage x depth-from-road; shallow-band fallback; facing wishes place bedrooms; C variant on collapse); 40x60 East 2/2 + 60x40 South 2/2 + 45x55 South + 40x60 North all LIVABLE.
 - [x] Oct 30: `layout.py` — placement + rule checks working (done Oct 29, Day 2).
 - [x] Oct 31: `draw.py` — SVG plan rendering (done Oct 29, Day 2).
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).

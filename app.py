@@ -63,8 +63,8 @@ st.write(
 
 # --- Input form: plot + bedrooms + toilets + wishes ---
 # Keep every input simple; plot numbers are in feet.
-plot_width = st.number_input("Plot width (ft)", min_value=10, value=40)
-plot_depth = st.number_input("Plot depth (ft)", min_value=10, value=60)
+frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40)
+depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60)
 road_side = st.selectbox("Which side faces the road?", ["North", "South", "East", "West"])
 num_bedrooms = st.number_input("Number of bedrooms", min_value=1, max_value=10, value=3)
 # Toilets: NO default on purpose. The field starts empty and the
@@ -99,7 +99,7 @@ if st.button("Generate room program"):
     with st.spinner("Asking Muse Spark for your room program..."):
         try:
             result = get_room_program(
-                plot_width, plot_depth, road_side,
+                frontage_ft, depth_ft, road_side,
                 int(num_bedrooms), num_toilets, wishes,
             )
         except Exception as err:
@@ -164,7 +164,7 @@ if st.button("Generate room program"):
     with st.spinner("Building three layout options..."):
         try:
             options_result = build_options(
-                rooms, plot_width, plot_depth, road_side, num_toilets,
+                rooms, frontage_ft, depth_ft, road_side, num_toilets,
                 wishes,
             )
         except Exception as err:

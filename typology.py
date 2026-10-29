@@ -48,6 +48,7 @@ from layout import (
     _as_rect,
     _branch_fill,
     _buckets,
+    _by_name,
     _check_all,
     _porch_size,
     _pref,
@@ -89,6 +90,38 @@ _COMBINE_PATTERNS = (
     r"([a-z ]+?)(?:[.,;]|$)",
 )
 
+# "South facing master bedroom", "kitchen facing west".
+_FACING_PATTERNS = (
+    (r"(north|south|east|west)[- ]facing\s+(?:the\s+)?([a-z ]+?)"
+     r"(?:[.,;]|$| and | with | which | that | as )", True),
+    (r"([a-z ]+?)\s+facing\s+(?:to\s+)?(?:the\s+)?"
+     r"(north|south|east|west)\b", False),
+)
+
+# Local frame -> compass (inputs are road-relative: front is the road side).
+_COMPASS_LOCAL = {
+    "south": {"front": "south", "back": "north",
+              "lowx": "west", "highx": "east"},
+    "north": {"front": "north", "back": "south",
+              "lowx": "east", "highx": "west"},
+    "east": {"front": "east", "back": "west",
+             "lowx": "south", "highx": "north"},
+    "west": {"front": "west", "back": "east",
+             "lowx": "north", "highx": "south"},
+}
+
+
+def _facing_target(compass, road):
+    """("strip", 0/1) or ("position", "front"/"back") for a compass wish."""
+    local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
+    if compass == local["lowx"]:
+        return ("strip", 0)
+    if compass == local["highx"]:
+        return ("strip", 1)
+    if compass == local["front"]:
+        return ("position", "front")
+    return ("position", "back")
+
 
 def _wish_room(phrase):
     """Map a wish phrase to a room type (None when no room word matches)."""
@@ -102,12 +135,16 @@ def _wish_room(phrase):
 def _parse_wishes(wishes):
     """Parse client wishes into layout directives.
 
-    Returns {"combine": [(type_a, type_b)], "garden": bool, "notes": []}.
-    Bedroom combinations are refused (privacy); unknown rooms are noted
-    and skipped. The garden always sits beside the living room for now.
+    Returns {"combine": [(type_a, type_b)], "garden": bool,
+    "facing": [{"room", "side", "master", "second", "phrase"}],
+    "notes": []}. Bedroom combinations are refused (privacy); unknown
+    rooms are noted and skipped. The garden always sits beside the
+    living room for now. Facing wishes ("south facing master bedroom")
+    place that bedroom on the correct real-world side.
     """
     text = (wishes or "").strip().lower()
-    directives = {"combine": [], "garden": False, "notes": []}
+    directives = {"combine": [], "garden": False, "facing": [],
+                  "notes": []}
     if not text:
         return directives
     seen = set()
@@ -127,6 +164,30 @@ def _parse_wishes(wishes):
                     "Bedrooms stay separate (privacy); combination skipped.")
                 continue
             directives["combine"].append(tuple(sorted(rooms)))
+    seen_facing = set()
+    for pattern, compass_first in _FACING_PATTERNS:
+        for first, second in re.findall(pattern, text):
+            compass, phrase = (first, second) if compass_first \
+                else (second, first)
+            room = _wish_room(phrase)
+            key = (room, compass)
+            if key in seen_facing:
+                continue
+            seen_facing.add(key)
+            if room is None:
+                directives["notes"].append(
+                    "Could not match a room in '%s facing'; skipped."
+                    % phrase.strip())
+                continue
+            clean = re.sub(r"[^a-z ]", " ", phrase.strip().lower())
+            directives["facing"].append({
+                "room": room, "side": compass,
+                "master": "master" in clean,
+                "second": any(word in clean for word in
+                              ("second", "other", "guest", "kids",
+                               "children")),
+                "phrase": phrase.strip(),
+            })
     if "garden" in text or "courtyard" in text or "lawn" in text:
         directives["garden"] = True
         match = re.search(
@@ -149,12 +210,13 @@ def _half(value):
     return round(value * 2) / 2
 
 
-def _local_dims(plot_width, plot_depth, road):
-    """Plot-local extents + buildable: x parallel road, y road-inward."""
-    if road in ("east", "west"):
-        plot_w, plot_d = float(plot_depth), float(plot_width)
-    else:
-        plot_w, plot_d = float(plot_width), float(plot_depth)
+def _local_dims(frontage_ft, depth_ft):
+    """Plot-local extents + buildable: x along frontage, y road-inward.
+
+    Inputs are road-relative (frontage = road side), so no compass swap:
+    the road side only rotates the drawing and sets real orientation.
+    """
+    plot_w, plot_d = float(frontage_ft), float(depth_ft)
     build_w = plot_w - SETBACK_SIDE_FT * 2
     build_d = plot_d - SETBACK_FRONT_FT - SETBACK_BACK_FT
     return plot_w, plot_d, build_w, build_d
@@ -303,8 +365,106 @@ def _valid_pairs(buckets, directives, notes):
     return valid
 
 
+def _bed_facing_plan(beds, facing, road, notes, single_side=None,
+                     bands=False):
+    """({bed_index: strip}, {bed_index: front/back}) from facing wishes.
+
+    Only bedrooms move: a side wish (west/east on north/south roads)
+    picks the strip, a front/back wish the end of the strip. Other rooms
+    are noted and stay where the typology puts them. With single_side
+    set (two-strip options), a side wish only matches or misses. With
+    bands set (shallow bands), only the first bedroom wish places (side
+    end); the rest stay in the back row, noted.
+    """
+    sides, positions, taken = {}, {}, set()
+    band_placed = False
+    ordered = sorted(enumerate(facing),
+                     key=lambda pair: (0 if bands and pair[1]["room"]
+                                       == "bedroom" and pair[1]["master"]
+                                       else 1, pair[0]))
+    for _position, wish in ordered:
+        if wish["room"] != "bedroom":
+            if wish["room"] == "kitchen":
+                notes.append("Kitchen stays by the dining; facing wishes "
+                             "are honored for bedrooms.")
+            else:
+                notes.append("%s stays on the public spine; facing wishes "
+                             "are honored for bedrooms."
+                             % wish["phrase"].strip().capitalize())
+            continue
+        if bands and band_placed:
+            notes.append("%s stays in the back row (shallow plan keeps "
+                         "one side wish)."
+                         % wish["phrase"].strip().capitalize())
+            continue
+        if wish["master"]:
+            index = 0
+        elif wish["second"] and len(beds) > 1:
+            index = 1
+        else:
+            free = [i for i in range(len(beds)) if i not in taken]
+            index = free[0] if free else None
+        if index is None or index >= len(beds):
+            notes.append("No bedroom for '%s facing'; skipped."
+                         % wish["phrase"].strip())
+            continue
+        if index in taken:
+            notes.append("'%s facing' already placed; second wish skipped."
+                         % wish["phrase"].strip())
+            continue
+        taken.add(index)
+        kind, value = _facing_target(wish["side"], road)
+        if bands:
+            band_placed = True
+            if kind != "strip":
+                notes.append("%s stays in the back row (front/back ends "
+                             "need a strip plan)."
+                             % beds[index]["name"])
+                continue
+        if kind == "strip":
+            if single_side is not None and value != single_side:
+                notes.append("%s faces %s in the other side-strip option."
+                             % (beds[index]["name"], wish["side"]))
+                continue
+            if single_side is not None:
+                notes.append("%s on the %s side (client wish)."
+                             % (beds[index]["name"], wish["side"]))
+                continue
+            sides[index] = value
+        else:
+            positions[index] = value
+        notes.append("%s placed %s (client wish: %s facing)."
+                     % (beds[index]["name"],
+                        "on the %s side" % wish["side"] if kind == "strip"
+                        else "%s-most" % ("front" if value == "front"
+                                          else "back"),
+                        wish["side"]))
+    return sides, positions
+
+
+def _front_wish(directives, road):
+    """True when a bedroom wish maps to the front end (rule-8 guard)."""
+    return any(wish["room"] == "bedroom"
+               and _facing_target(wish["side"], road) == ("position", "front")
+               for wish in directives["facing"])
+
+
+def _relocate_block(side_list, bed_name, bath_names, to_front):
+    """Move a bedroom + its baths to the front/back end of a slot list."""
+    block = [slot for slot in side_list
+             if slot[1].get("name") == bed_name
+             or slot[1].get("name") in bath_names]
+    if not block:
+        return
+    rest = [slot for slot in side_list if slot not in block]
+    if to_front:
+        side_list[:] = rest + block
+    else:
+        side_list[:] = block + rest
+
+
 def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
-                        directives, living_out):
+                        directives, living_out, road, common_side=None):
     """Back-to-front slot lists ((west, east)) + valid pairs + merged flag.
 
     Master takes its back corner, second bedroom the other back corner,
@@ -313,15 +473,21 @@ def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
     out of the spine) takes a front corner: kitchen side when merged with
     the kitchen (directly below it, one open space), else the shorter
     side. Extra bedrooms stack front-ward (placed, reported honestly).
+    Facing wishes override a bedroom's strip or end (road-aware).
     """
     kitchen_side = 0 if kitchen_strip == 0 else 1
     master_side = 0 if master_strip == 0 else 1
     other_side = 1 - kitchen_side
+    explicit_common = common_side is not None
+    if common_side is None:
+        common_side = other_side
     beds = list(buckets["bedrooms"])
     master_name = beds[0]["name"] if beds else ""
     kitchen = buckets["kitchen"][0] if buckets["kitchen"] else None
     living = buckets["living"][0] if buckets["living"] else None
     bath_of, loose_baths, common = _bath_map(buckets, notes)
+    face_sides, face_positions = _bed_facing_plan(
+        beds, directives["facing"], road, notes)
     valid_pairs = _valid_pairs(buckets, directives, notes)
     merge_lk = living_out and living is not None and kitchen is not None \
         and any("living room" in pair and "kitchen" in pair
@@ -333,33 +499,58 @@ def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
         for bath in bath_of.get(bed["name"], []):
             sides[strip].append(("bath", bath, _bath_extra(bath, master_name)))
 
+    master_actual = face_sides.get(0, master_side)
+    for index, end in face_positions.items():
+        if end != "front" or explicit_common:
+            continue
+        if index == 0:
+            bed_side = master_actual
+        elif index == 1:
+            bed_side = face_sides.get(1, 1 - master_actual)
+        else:
+            bed_side = face_sides.get(index, other_side)
+        if common_side == bed_side:
+            common_side = 1 - bed_side
+            notes.append("Common toilet moves opposite the front-most "
+                         "bedroom (door reach).")
+        break
     if beds:
-        _bed_with_bath(beds[0], master_side)
+        _bed_with_bath(beds[0], master_actual)
     if len(beds) > 1:
-        _bed_with_bath(beds[1], 1 - master_side)
+        _bed_with_bath(beds[1], face_sides.get(1, 1 - master_actual))
     # Two middle orders on the non-kitchen side (common above/below bed 3).
     middle_beds = beds[2:]
     variants = []
     for common_first in (True, False):
         order = [list(sides[0]), list(sides[1])]
+        shared_side = common_side == kitchen_side
+        if shared_side and common is not None:
+            # Common first: it needs dining/family height, the kitchen
+            # takes the front (its dining door bends, reported Day 3).
+            order[common_side].append(("common", common, (5.0, False)))
+            for bath in loose_baths:
+                order[common_side].append(("common", bath, (5.0, False)))
         if kitchen is not None:
             order[kitchen_side].append(("kitchen", kitchen, None))
-        middle = list(middle_beds)
+        middle = list(enumerate(middle_beds, start=2))
         if common is not None and not common_first and middle:
-            first, middle = middle[0], middle[1:]
-            order[other_side].append(("bedroom", first, None))
+            (first_index, first), middle = middle[0], middle[1:]
+            first_side = face_sides.get(first_index, other_side)
+            order[first_side].append(("bedroom", first, None))
             for bath in bath_of.get(first["name"], []):
-                order[other_side].append(
+                order[first_side].append(
                     ("bath", bath, _bath_extra(bath, master_name)))
-        if common is not None:
-            order[other_side].append(("common", common, (5.0, False)))
-        for bed in middle:
-            order[other_side].append(("bedroom", bed, None))
+        if common is not None and not shared_side:
+            order[common_side].append(("common", common, (5.0, False)))
+        for index, bed in middle:
+            bed_side = face_sides.get(index, other_side)
+            order[bed_side].append(("bedroom", bed, None))
             for bath in bath_of.get(bed["name"], []):
-                order[other_side].append(
+                order[bed_side].append(
                     ("bath", bath, _bath_extra(bath, master_name)))
-        for bath in loose_baths:
-            order[other_side].append(("common", bath, (5.0, False)))
+        if not shared_side:
+            for bath in loose_baths:
+                order[common_side].append(("common", bath, (5.0, False)))
         if living_out and living is not None:
             if merge_lk:
                 living_side = kitchen_side
@@ -370,6 +561,24 @@ def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
             else:
                 living_side = kitchen_side
             order[living_side].append(("living", living, None))
+        for index, end in face_positions.items():
+            names = {b["name"] for b in
+                     bath_of.get(beds[index]["name"], [])}
+            for side_list in order:
+                if any(slot[1].get("name") == beds[index]["name"]
+                       for slot in side_list):
+                    _relocate_block(side_list, beds[index]["name"], names,
+                                    end == "front")
+                    if end == "front":
+                        # A front-most bedroom can place smaller than its
+                        # siblings: its baths keep the standard range so
+                        # rule 18 (master = largest placed) never trips.
+                        for pos, slot in enumerate(side_list):
+                            if slot[0] == "bath" \
+                                    and slot[1]["name"] in names:
+                                side_list[pos] = (
+                                    "bath", slot[1], (slot[2][0], False))
+                    break
         variants.append(order)
     return variants, valid_pairs, merge_lk
 
@@ -669,7 +878,7 @@ def _verify_open_plan(rects, valid_pairs, notes):
 
 
 def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
-                 notes, directives):
+                 notes, directives, road, common_side=None):
     """One three-strip option in buildable coords (rects, info, meta).
 
     Raises _Infeasible (geometry is hard) instead of placing anything
@@ -689,7 +898,9 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
         build_d - y0, notes)
     spans = _spine_spans(spine)
     variants, valid_pairs, _merge_lk = _assign_three_strip(
-        buckets, kitchen_strip, master_strip, notes, directives, living_out)
+        buckets, kitchen_strip, master_strip, notes, directives, living_out,
+        road, common_side)
+    base_min = y0 + 1.0 if _front_wish(directives, road) else 0.0
     best, tried_all = None, tried
     for order in variants:
         living_side = None
@@ -702,13 +913,14 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
                 strip_x = x0 if index == 0 else x0 + side_w + center_w
                 stacked = _stack_side(
                     slots, strip_x, side_w, build_d, spans, notes,
-                    outer_east=(index == 1))
+                    outer_east=(index == 1), min_bottom=base_min)
                 if directives["garden"] and index == living_side:
                     # Garden gap only when it costs no doors (rooms win).
                     try:
                         reserved = _stack_side(
                             slots, strip_x, side_w, build_d, spans, notes,
-                            outer_east=(index == 1), min_bottom=5.0)
+                            outer_east=(index == 1),
+                            min_bottom=max(5.0, base_min))
                     except _Infeasible:
                         reserved = None
                     if reserved is not None:
@@ -749,18 +961,21 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
 
 
 def _assign_two_strip(buckets, notes, kitchen_first, directives,
-                      living_out):
+                      living_out, road, single_side):
     """Single side-strip order, back to front (narrow plots).
 
     Returns (slots, valid_pairs, merge_lk). The living room (when out of
     the spine) goes front-most; merged with the kitchen it sits directly
-    below it (kitchen second-to-last), one open space.
+    below it (kitchen second-to-last), one open space. Facing wishes
+    move a bedroom to the front/back end; side wishes match or miss.
     """
     beds = list(buckets["bedrooms"])
     master_name = beds[0]["name"] if beds else ""
     kitchen = buckets["kitchen"][0] if buckets["kitchen"] else None
     living = buckets["living"][0] if buckets["living"] else None
     bath_of, loose, common = _bath_map(buckets, notes)
+    _face_sides, face_positions = _bed_facing_plan(
+        beds, directives["facing"], road, notes, single_side)
     valid_pairs = _valid_pairs(buckets, directives, notes)
     merge_lk = living_out and living is not None and kitchen is not None \
         and any("living room" in pair and "kitchen" in pair
@@ -798,11 +1013,18 @@ def _assign_two_strip(buckets, notes, kitchen_first, directives,
         slots.append(("living", living, None))
     if merge_lk:
         slots.append(("living", living, None))
+    for index, end in face_positions.items():
+        names = {b["name"] for b in bath_of.get(beds[index]["name"], [])}
+        _relocate_block(slots, beds[index]["name"], names, end == "front")
+        if end == "front":
+            for pos, slot in enumerate(slots):
+                if slot[0] == "bath" and slot[1]["name"] in names:
+                    slots[pos] = ("bath", slot[1], (slot[2][0], False))
     return slots, valid_pairs, merge_lk
 
 
 def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
-               notes, directives):
+               notes, directives, road):
     """One two-strip option in buildable coords (rects, info, meta).
 
     Raises _Infeasible (geometry is hard) instead of placing anything
@@ -824,17 +1046,19 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
         build_d - y0, notes)
     spans = _spine_spans(spine)
     slots, valid_pairs, _merge_lk = _assign_two_strip(
-        buckets, notes, kitchen_first, directives, living_out)
+        buckets, notes, kitchen_first, directives, living_out, road,
+        0 if side_west else 1)
     has_living = any(kind == "living" for kind, _r, _e in slots)
     garden_ok = True
+    base_min = y0 + 1.0 if _front_wish(directives, road) else 0.0
     stacked = _stack_side(slots, side_x, side_w, build_d, spans, notes,
-                          outer_east=not side_west)
+                          outer_east=not side_west, min_bottom=base_min)
     if directives["garden"] and has_living:
         # Garden gap only when it costs no doors (rooms win).
         try:
             reserved = _stack_side(slots, side_x, side_w, build_d, spans,
                                    notes, outer_east=not side_west,
-                                   min_bottom=5.0)
+                                   min_bottom=max(5.0, base_min))
         except _Infeasible:
             reserved = None
         extra = reserved[3] if reserved is not None else 0
@@ -860,6 +1084,261 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
             "house_back": max(r["y"] + r["d"] for r in indoor)}
     return rects, info, {"tried": tried + count, "relaxed": relaxed,
                          "typology": "two-strip", "open_plan": achieved}
+
+
+def _width_options(room, depth, kind):
+    """0.5-ft widths in range, preferred-like first, never-square vs depth."""
+    low, high = _type_range(kind)
+    pref = _pref(room, "width_ft", kind)
+    preferred, relaxed = [], []
+    width = low
+    while width <= high + EPS:
+        if abs(width - depth) >= 1 - EPS:
+            preferred.append(_half(width))
+        width += 0.5
+    limits = RELAXED_RANGES.get(kind)
+    if limits is not None:
+        width = limits[0]
+        while width <= limits[1] + EPS:
+            candidate = _half(width)
+            if candidate not in preferred \
+                    and abs(candidate - depth) >= 1 - EPS:
+                relaxed.append(candidate)
+            width += 0.5
+    preferred.sort(key=lambda w: (abs(w - pref), w))
+    relaxed.sort(key=lambda w: (abs(w - pref), w))
+    return preferred + relaxed
+
+
+def _relaxed_width(kind, width):
+    """True when a width uses the relaxed (bend) range, not preferred."""
+    low, high = _type_range(kind)
+    if low - EPS <= width <= high + EPS:
+        return False
+    limits = RELAXED_RANGES.get(kind)
+    return limits is not None and limits[0] - EPS <= width <= limits[1] + EPS
+
+
+def _width_score(entries, combo):
+    """Pref-closeness + 10 per relaxed width (preferred fill wins)."""
+    score = 0.0
+    for (room, kind, const), width in zip(entries, combo):
+        if const is not None:
+            continue
+        score += abs(width - _pref(room, "width_ft", kind))
+        if _relaxed_width(kind, width):
+            score += 10.0
+    return score
+
+
+def _ranked_widths(entries, target, depth, limit=30):
+    """Exact-fill width combos, best-scoring first (plus tried count)."""
+    option_lists = []
+    for room, kind, const in entries:
+        if const is not None:
+            option_lists.append([const])
+        else:
+            option_lists.append(_width_options(room, depth, kind))
+    tried = 1
+    for options in option_lists:
+        tried *= max(len(options), 1)
+    scored = []
+    for combo in itertools.product(*option_lists):
+        if abs(sum(combo) - target) > 0.01:
+            continue
+        scored.append((_width_score(entries, combo), list(combo)))
+    scored.sort(key=lambda item: (item[0], item[1]))
+    return scored[:limit], tried
+
+
+def _spans_for(kinds, widths, x0):
+    """{kind: (x_start, x_end)} for one band row."""
+    spans, cursor = {}, x0
+    for kind, width in zip(kinds, widths):
+        spans[kind] = (cursor, cursor + width)
+        cursor += width
+    return spans
+
+
+def _back_widths(back_cells, total, back_d, spans, x0, mirror,
+                 has_family):
+    """(widths_or_None, store_residual, tried) for the back band.
+
+    Toilets keep fixed widths; the slack becomes a store slice (2 ft+)
+    or nothing when the row fills exactly. The family must overlap a
+    non-kitchen front room so every route stays off the kitchen.
+    """
+    flex = [(room, kind) for room, kind, const in back_cells
+            if const is None]
+    fixed_sum = sum(const for _room, _kind, const in back_cells
+                    if const is not None)
+    option_lists = [_width_options(room, back_d, kind)
+                    for room, kind in flex]
+    tried, best = 0, None
+    for combo in itertools.product(*option_lists):
+        tried += 1
+        residual = total - fixed_sum - sum(combo)
+        if residual > 0.01 and residual < 2 - EPS:
+            continue  # sliver no store can take; exact or useful only
+        if residual < -0.01:
+            continue
+        if has_family:
+            fam_w = combo[0]  # family is the first flex cell
+            fam_span = (x0 + total - fam_w, x0 + total) if mirror \
+                else (x0, x0 + fam_w)
+            touched = any(
+                min(fam_span[1], span[1]) - max(fam_span[0], span[0])
+                >= 0.5 - EPS
+                for kind, span in spans.items()
+                if kind in ("dining", "living room", "foyer"))
+            if not touched:
+                continue
+        key = _width_score([(room, kind, None) for room, kind in flex],
+                           combo)
+        if best is None or key < best[0] - EPS:
+            best = (key, combo, residual)
+    if best is None:
+        return None, 0.0, tried
+    return best[1], best[2], tried
+
+
+def _wide_bands(buckets, build_w, build_d, notes, directives, road,
+                variant):
+    """Shallow two-band option for wide plots (rects, info, meta).
+
+    Front band (12 ft): foyer, living, dining, kitchen side by side.
+    Back band: family, common toilet, bedrooms with attached baths, and
+    a store slice for the slack. The kitchen sits at a band end so it
+    never severs circulation; the family overlaps a non-kitchen front
+    room. Raises _Infeasible instead of breaking geometry (G).
+    """
+    y0 = _y0_porch(buckets)
+    front_d, back_d = 12.0, build_d - y0 - 12.0
+    if back_d < 10 - EPS:
+        raise _Infeasible("shallow bands need %.0f ft depth, have %.0f ft"
+                          % (y0 + 22, build_d))
+    if back_d > 15 + EPS:
+        raise _Infeasible("too deep for shallow bands (%.0f ft)" % build_d)
+    beds = list(buckets["bedrooms"])
+    if not beds:
+        raise _Infeasible("shallow bands need at least one bedroom")
+    x0, total = 3.0, build_w - 6.0
+    if total < 36 - EPS:
+        raise _Infeasible("shallow bands need %.0f ft frontage, have %.0f ft"
+                          % (42, build_w))
+    first = {"kitchen": buckets["kitchen"][:1],
+             "dining": buckets["dining"][:1],
+             "living room": buckets["living"][:1],
+             "foyer": buckets["foyer"][:1]}
+    orders = {"low": ("kitchen", "dining", "living room", "foyer"),
+              "high": ("kitchen", "dining", "living room", "foyer"),
+              "split": ("kitchen", "living room", "dining", "foyer")}
+    kinds = [kind for kind in orders[variant] if first[kind]]
+    if not kinds:
+        raise _Infeasible("no common rooms for the front band")
+    entries = [(first[kind][0], kind, None) for kind in kinds]
+    ranked, tried_front = _ranked_widths(entries, total, front_d)
+    if not ranked:
+        raise _Infeasible("front rooms cannot fill %.0f ft width" % total)
+    mirror = variant == "high"
+    master_name = beds[0]["name"]
+    bath_of, loose, common = _bath_map(buckets, notes)
+    _face_sides, _face_pos = _bed_facing_plan(
+        beds, directives["facing"], road, notes, bands=True)
+    wished = _face_sides.get(0)
+    bed_seq = list(beds)
+    if wished is not None and (wished == 1) == (not mirror):
+        bed_seq.reverse()
+    back_cells = []
+    if buckets["family"]:
+        back_cells.append((buckets["family"][0], "family living", None))
+    for bath in ([common] if common is not None else []) + loose:
+        back_cells.append((bath, "bathroom", _bath_extra(bath, master_name)[0]))
+    for bed in bed_seq:
+        back_cells.append((bed, "bedroom", None))
+        for bath in bath_of.get(bed["name"], []):
+            back_cells.append((bath, "bathroom",
+                               _bath_extra(bath, master_name)[0]))
+    front_w, chosen, residual, tried_back = None, None, 0.0, 0
+    for _score, combo in ranked:
+        spans = _spans_for(kinds, combo, x0)
+        if mirror:  # family check runs in final (mirrored) coordinates
+            spans = {kind: (2 * x0 + total - end, 2 * x0 + total - start)
+                     for kind, (start, end) in spans.items()}
+        found = _back_widths(back_cells, total, back_d, spans, x0, mirror,
+                             bool(buckets["family"]))
+        tried_back += found[2]
+        if found[0] is not None:
+            front_w, chosen, residual = combo, found[0], found[1]
+            break
+    if front_w is None:
+        raise _Infeasible("back rooms cannot fill %.0f ft width" % total)
+    rects, cursor = [], x0
+    for kind, width in zip(kinds, front_w):
+        rects.append(_as_rect(first[kind][0], cursor, y0, width, front_d))
+        cursor += width
+    back_y = y0 + front_d
+    cursor = x0
+    flex_widths = iter(chosen)
+    flex = [(cell, kind) for cell, kind, const in back_cells
+            if const is None]
+    bed_widths = [width for (cell, kind), width in zip(flex, chosen)
+                  if kind == "bedroom"]
+    for room, kind, const in back_cells:
+        width = const if const is not None else next(flex_widths)
+        if kind == "bathroom":
+            # Rule 18 calls the largest placed bedroom the master: the
+            # long master bath only when its host stays the widest (all
+            # back beds share one depth, so width decides area).
+            host = next((bed["name"] for bed in beds
+                         if room in bath_of.get(bed["name"], [])), "")
+            host_w = next((width for (cell, kind), width in
+                           zip(flex, chosen)
+                           if kind == "bedroom" and cell["name"] == host),
+                          0.0)
+            is_master = _bath_extra(room, master_name)[1] and host_w and \
+                all(host_w >= other - EPS for other in bed_widths)
+            depth = min(9.0 if is_master else 8.0, back_d - 2.0)
+            rects.append(_as_rect(room, cursor, back_y + back_d - depth,
+                                  width, depth))
+            rects.append(_as_rect(
+                {"name": "Wardrobe (%s)" % room["name"], "type": "wardrobe"},
+                cursor, back_y, width, back_d - depth))
+        else:
+            rects.append(_as_rect(room, cursor, back_y, width, back_d))
+        cursor += width
+    if residual > 0.01:
+        rects.append(_as_rect({"name": "Store", "type": "storage"},
+                              cursor, back_y, residual, back_d))
+    if mirror:
+        for rect in rects:
+            rect["x"] = 2 * x0 + total - rect["x"] - rect["w"]
+    if back_d < 12 - EPS and buckets["family"]:
+        notes.append("Family Living %.1f ft deep (relaxed) in the shallow "
+                     "plan." % back_d)
+    if directives["garden"]:
+        notes.append("No room for the wished garden in the shallow plan; "
+                     "rooms kept.")
+    for bed in beds:
+        placed = _by_name(rects, bed["name"])
+        common_rooms = [r for r in rects
+                        if r["type"] in ("family living", "dining")]
+        if max([shared_wall(placed, other) for other in common_rooms]
+               or [0.0]) < 3 - EPS:
+            notes.append("%s opens off the living room (shallow plot "
+                         "compromise)." % bed["name"])
+    _shell(rects, buckets, build_w, build_d, notes)
+    achieved = _verify_open_plan(rects, _valid_pairs(buckets, directives,
+                                                     notes), notes)
+    indoor = [r for r in rects
+              if _room_type(r) not in ("porch", "veranda", "garden")]
+    relaxed = [buckets["family"][0]["name"]] if back_d < 12 - EPS \
+        and buckets["family"] else []
+    info = {"row_front_y": y0, "row_widths": [total],
+            "house_back": max(r["y"] + r["d"] for r in indoor)}
+    return rects, info, {"tried": tried_front + tried_back,
+                         "relaxed": relaxed, "typology": "shallow-band",
+                         "open_plan": achieved}
 
 
 def _row_widths_l(rooms, target, depth, notes):
@@ -1074,22 +1553,26 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
 def _option_specs(buckets, build_w, build_d, road, directives):
     """(label, title, builder) for A/B/C (builders take a notes list)."""
     if build_w < 30 - EPS:
+        local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
+        low_word, high_word = local["lowx"], local["highx"]
+
         def _build_c_two(notes):
             if directives["combine"]:
                 notes.append("Option C keeps rooms separate (compare with "
                              "the open plan).")
             plain = dict(directives, combine=[])
             return _two_strip(buckets, build_w, build_d, True, False, notes,
-                              plain)
+                              plain, road)
 
         return [
-            ("A", "Two-strip, rooms west",
+            ("A", "Two-strip, rooms %s" % low_word,
              lambda n: _two_strip(buckets, build_w, build_d, True, True, n,
-                                  directives)),
-            ("B", "Two-strip, rooms east",
+                                  directives, road)),
+            ("B", "Two-strip, rooms %s" % high_word,
              lambda n: _two_strip(buckets, build_w, build_d, False, True, n,
-                                  directives)),
-            ("C", "Two-strip, rooms west (alt order)", _build_c_two),
+                                  directives, road)),
+            ("C", "Two-strip, rooms %s (alt order)" % low_word,
+             _build_c_two),
         ]
     west = _west_strip_index(road)
     kitchen_a = west if west is not None else 0
@@ -1099,36 +1582,53 @@ def _option_specs(buckets, build_w, build_d, road, directives):
     def _build_c(notes):
         found = _try_l_shape(buckets, build_w, build_d, notes, directives)
         if found is not None:
+            if directives["facing"]:
+                notes.append("Facing wishes are honored in the strip "
+                             "options; the L-shape keeps its wings.")
             return found
         notes.append("L-shape does not fit this brief; "
                      "third three-strip variant instead.")
+        strip_wish = any(
+            wish["room"] == "bedroom"
+            and _facing_target(wish["side"], road)[0] == "strip"
+            for wish in directives["facing"])
+        if strip_wish:
+            # A strip wish can collapse A/C to the same strips; C puts
+            # the common toilet on the kitchen side instead.
+            try:
+                return _three_strip(buckets, build_w, build_d, kitchen_a,
+                                    kitchen_a, notes, directives, road,
+                                    0 if kitchen_a == 0 else 1)
+            except _Infeasible:
+                notes.append("Common-side variant does not fit; closest "
+                             "variant kept.")
         return _three_strip(buckets, build_w, build_d, kitchen_a, kitchen_a,
-                            notes, directives)
+                            notes, directives, road)
 
     return [
         ("A", "Three-strip, kitchen %s" % west_word,
          lambda n: _three_strip(buckets, build_w, build_d, kitchen_a,
-                                2 - kitchen_a, n, directives)),
+                                2 - kitchen_a, n, directives, road)),
         ("B", "Three-strip, kitchen %s" % east_word,
          lambda n: _three_strip(buckets, build_w, build_d, 2 - kitchen_a,
-                                kitchen_a, n, directives)),
+                                kitchen_a, n, directives, road)),
         ("C", "L-shape with court" if build_w >= 45 - EPS
          else "Three-strip, kitchen + master %s" % west_word,
          _build_c),
     ]
 
 
-def build_options(program_rooms, plot_width, plot_depth, road_side,
+def build_options(program_rooms, frontage_ft, depth_ft, road_side,
                   num_toilets, wishes=""):
     """Three typology options (A/B/C) for the brief, checked and scored.
 
-    Wishes shape the layout (combined spaces, wished garden). Geometry
+    Frontage/depth are road-relative (frontage = road side). Wishes shape
+    the layout (combined spaces, wished garden, room facing). Geometry
     is a hard constraint: an option that cannot fit inside the buildable
     area is skipped with a clear reason, never drawn broken.
     """
     road = (road_side or "south").lower()
-    plot_w, plot_d, build_w, build_d = _local_dims(plot_width, plot_depth,
-                                                   road)
+    plot_w, plot_d, build_w, build_d = _local_dims(frontage_ft, depth_ft)
     result = {"plot": {"width": plot_w, "depth": plot_d, "road": road},
               "buildable": {"width": build_w, "depth": build_d},
               "options": [], "notes": []}
@@ -1157,4 +1657,37 @@ def build_options(program_rooms, plot_width, plot_depth, road_side,
         result["options"].append(_finish_option(
             rects, info, meta, label, title, build_w, build_d, road,
             num_toilets, notes))
+    if not result["options"]:
+        _try_wide_fallback(result, buckets, build_w, build_d, road,
+                           num_toilets, directives)
     return result
+
+
+def _try_wide_fallback(result, buckets, build_w, build_d, road,
+                       num_toilets, directives):
+    """Shallow two-band options when no strip plan fits (wide plots)."""
+    depths_ok = 10 - EPS <= build_d - _y0_porch(buckets) - 12.0 <= 15 + EPS
+    if build_w < 42 - EPS or not depths_ok:
+        return
+    result["notes"].append("Standard strips need more depth; trying the "
+                           "shallow two-band plan.")
+    local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
+    specs = (("A", "Shallow bands, kitchen %s" % local["lowx"], "low"),
+             ("B", "Shallow bands, kitchen %s" % local["highx"], "high"),
+             ("C", "Shallow bands, kitchen %s (dining mid)"
+              % local["lowx"], "split"))
+    for label, title, variant in specs:
+        notes = []
+        try:
+            rects, info, meta = _wide_bands(buckets, build_w, build_d,
+                                            notes, directives, road,
+                                            variant)
+        except _Infeasible as exc:
+            result["notes"].append("Option %s skipped: %s." % (label, exc))
+            continue
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            notes.append("Option %s failed to build (%s)." % (label, exc))
+            continue
+        result["options"].append(_finish_option(
+            rects, info, meta, label, title, build_w, build_d, road,
+            num_toilets, notes))

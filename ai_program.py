@@ -79,23 +79,17 @@ def format_ft_in(feet):
     return f"{ft}'-{inch}\""
 
 
-def calculate_buildable_area(plot_width, plot_depth, road_side):
+def calculate_buildable_area(frontage_ft, depth_ft, road_side):
     """Plot minus setbacks = the rectangle the house must fit inside.
 
-    Front (6 ft) + back (4 ft) come off one direction, sides
-    (1.5 ft each) off the other. Which direction depends on the road:
-    North/South road -> front/back along depth; East/West -> along width.
-    Returns a dict with width, depth, and area in sq ft.
+    Inputs are road-relative (frontage = road side), so front (6 ft)
+    + back (4 ft) always come off the depth and the side setbacks
+    (1.5 ft each) off the frontage. The road side only rotates the
+    drawing and sets the real orientation. Returns a dict with width,
+    depth, and area in sq ft.
     """
-    road = str(road_side or "").strip().lower()
-    if road in ("east", "e", "west", "w"):
-        # Road on the side: front/back setbacks eat into the width.
-        buildable_width = plot_width - SETBACK_FRONT_FT - SETBACK_BACK_FT
-        buildable_depth = plot_depth - SETBACK_SIDE_FT * 2
-    else:
-        # Road at North or South (the usual case): setbacks eat into depth.
-        buildable_width = plot_width - SETBACK_SIDE_FT * 2
-        buildable_depth = plot_depth - SETBACK_FRONT_FT - SETBACK_BACK_FT
+    buildable_width = frontage_ft - SETBACK_SIDE_FT * 2
+    buildable_depth = depth_ft - SETBACK_FRONT_FT - SETBACK_BACK_FT
     # A tiny plot can leave nothing (or less); clamp at zero, never negative.
     buildable_width = max(0, buildable_width)
     buildable_depth = max(0, buildable_depth)
@@ -220,12 +214,13 @@ Keep the whole program (rooms + walls) inside the buildable area the user messag
 """
 
 
-def _build_user_message(plot_width, plot_depth, road_side, num_bedrooms,
+def _build_user_message(frontage_ft, depth_ft, road_side, num_bedrooms,
                          num_toilets, wishes, buildable):
     """Turn the form inputs into one short message for the AI."""
     wishes = (wishes or "").strip() or "No extra wishes."
     return (
-        f"Plot: {plot_width} ft wide x {plot_depth} ft deep. "
+        f"Plot: {frontage_ft} ft road frontage x {depth_ft} ft deep "
+        f"from the road. "
         f"Road side: {road_side}. "
         f"Bedrooms wanted: {num_bedrooms}. "
         f"Toilets wanted: {num_toilets} (exactly 1 common, rest attached). "
@@ -486,7 +481,7 @@ def check_toilets(rooms, num_toilets):
     return problems
 
 
-def get_room_program(plot_width, plot_depth, road_side, num_bedrooms,
+def get_room_program(frontage_ft, depth_ft, road_side, num_bedrooms,
                      num_toilets, wishes):
     """Send the brief to Muse Spark; return rooms + checks + area budget.
 
@@ -515,11 +510,11 @@ def get_room_program(plot_width, plot_depth, road_side, num_bedrooms,
     client = OpenAI(api_key=api_key, base_url=BASE_URL)
 
     # Buildable area first, so the AI knows its budget.
-    buildable = calculate_buildable_area(plot_width, plot_depth, road_side)
+    buildable = calculate_buildable_area(frontage_ft, depth_ft, road_side)
 
     # First ask: full brief -> room program JSON.
     user_message = _build_user_message(
-        plot_width, plot_depth, road_side, num_bedrooms,
+        frontage_ft, depth_ft, road_side, num_bedrooms,
         num_toilets, wishes, buildable
     )
     program = json.loads(_ask_model(client, SYSTEM_PROMPT, [

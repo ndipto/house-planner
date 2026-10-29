@@ -279,8 +279,10 @@ def test_impossible_plot():
     result = build_options(PROGRAM_3BED, 10, 10, "South", 3)
     assert result["options"] == [], "no option fits a 10x10 plot"
     assert result["notes"], "the reason must be noted"
-    shallow = build_options(PROGRAM_3BED, 40, 60, "East", 3)
-    assert shallow["options"] == [], "no strip option fits 25 ft of depth"
+    # Too narrow for bands (needs 42 ft) and too shallow for strips
+    # (needs 29 ft): honest skips, never a broken plan.
+    shallow = build_options(PROGRAM_3BED, 30, 30, "South", 3)
+    assert shallow["options"] == [], "nothing fits 27x20 ft buildable"
     assert any("skipped" in note for note in shallow["notes"]), \
         "each skipped option says why (message, not a broken plan)"
     print("PASS test_impossible_plot (no options + reasons)")
@@ -403,11 +405,104 @@ def test_circulation_kitchen_trap():
     print("PASS test_circulation_kitchen_trap (UNLIVABLE, crossing named)")
 
 
+WISHES_EAST = ("need a south facing master bedroom. "
+                "and nice living room.")
+
+
+def test_road_east_facing_master():
+    """40 frontage x 60 deep, road East: livable, master south (low x)."""
+    result = build_options(PROGRAM_2BED, 40, 60, "East", 2, WISHES_EAST)
+    options = result["options"]
+    assert len(options) == 3, "deep road-relative plot fits strips"
+    middle = SETBACK_SIDE_FT + result["buildable"]["width"] / 2
+    for opt in options:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "18") == "PASS", "real toilet sizes"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        assert _center_x(opt["placements"], "Bedroom 1") < middle, \
+            "option %s: master on the south side" % opt["label"]
+        assert any("south side (client wish" in note
+                   for note in opt["notes"]), "the wish is reported"
+    by_label = {o["label"]: o for o in options}
+    assert _center_x(by_label["A"]["placements"], "Bedroom 2") > middle, \
+        "A: second bedroom takes the other corner"
+    assert _center_x(by_label["B"]["placements"], "Bedroom 2") > middle, \
+        "B: second bedroom takes the other corner"
+    assert by_label["C"]["typology"] == "three-strip"
+    common_c = next(r for r in by_label["C"]["placements"]
+                    if r["name"] == "Common Toilet")
+    common_a = next(r for r in by_label["A"]["placements"]
+                    if r["name"] == "Common Toilet")
+    assert (common_c["x"] < middle) != (common_a["x"] < middle), \
+        "C moves the common toilet to the other side"
+    feet = [_footprint(o) for o in options]
+    assert feet[0] != feet[1] and feet[0] != feet[2] \
+        and feet[1] != feet[2], "options must differ"
+    print("PASS test_road_east_facing_master (master south x3)")
+
+
+def test_wide_shallow_bands():
+    """60 frontage x 40 deep, road South: shallow bands, all livable."""
+    result = build_options(PROGRAM_2BED, 60, 40, "South", 2)
+    options = result["options"]
+    assert [o["typology"] for o in options] == ["shallow-band"] * 3
+    assert any("shallow two-band" in note for note in result["notes"]), \
+        "the fallback is announced"
+    for opt in options:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "18") == "PASS", "real toilet sizes"
+        assert _rule_status(opt, "G") == "PASS", "nothing outside"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        baths = [r for r in opt["placements"] if r["type"] == "bathroom"]
+        assert baths and all(b["w"] == 5.0 for b in baths), \
+            "toilets never stretched to fill the band"
+    by_label = {o["label"]: o for o in options}
+    assert _rule_status(by_label["A"], "13") == "PASS", \
+        "A: kitchen west corner + veranda"
+    assert _rule_status(by_label["B"], "13") == "BEND", "B misses west"
+    assert [r["id"] for r in by_label["C"]["rules"]
+            if r["status"] == "FAIL"] == [], "C has zero fails"
+    feet = [_footprint(o) for o in options]
+    assert feet[0] != feet[1] and feet[0] != feet[2] \
+        and feet[1] != feet[2], "options must differ"
+    print("PASS test_wide_shallow_bands (3 livable bands)")
+
+
+def _center_y(placements, name):
+    for rect in placements:
+        if rect["name"] == name:
+            return rect["y"] + rect["d"] / 2
+    raise AssertionError("missing room %s" % name)
+
+
+def test_front_facing_master():
+    """South road + south master: front-most bedroom, all livable."""
+    result = build_options(PROGRAM_2BED, 45, 55, "South", 2,
+                           "south facing master bedroom")
+    options = result["options"]
+    assert len(options) == 3
+    for opt in options:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "7") == "PASS", "common keeps its door"
+        assert _rule_status(opt, "8") == "PASS", "no toilet on front wall"
+        assert _rule_status(opt, "18") == "PASS", "real toilet sizes"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        assert _center_y(opt["placements"], "Bedroom 1") < \
+            _center_y(opt["placements"], "Bedroom 2"), \
+            "option %s: master front-most" % opt["label"]
+        assert any("front-most (client wish" in note
+                   for note in opt["notes"]), "the wish is reported"
+    print("PASS test_front_facing_master (front-most x3)")
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
     test_svg_rotation()
     test_impossible_plot()
+    test_road_east_facing_master()
+    test_front_facing_master()
+    test_wide_shallow_bands()
     test_one_bedroom()
     test_narrow_two_strip()
     test_l_shape_wide()
