@@ -59,6 +59,10 @@ VERANDA_PROJ_MIN_FT = 3  # how far the veranda sticks out from the wall
 VERANDA_PROJ_MAX_FT = 5
 VERANDA_MIN_LEN_FT = 3
 
+# Relaxed absolute limits (preferred PROJECT.md ranges stay; a room sized
+# inside its relaxed range but outside preferred BENDS rule 1, -2 each).
+RELAXED_RANGES = {"family living": (10, 15), "living room": (12, 17)}
+
 # Row depths we try (ft). Middle rows hold family rooms (12-15 range, dining
 # caps at 14); back rows hold bedrooms; the strip holds only bathrooms.
 MID_DEPTH_OPTIONS = (12, 13, 14)
@@ -1307,11 +1311,15 @@ NEIGHBOUR_FT = 0.5
 def livability_verdict(rules):
     """(livable, failed_ids) from finished rule rows.
 
-    UNLIVABLE iff any of rules 13-16 FAIL. Rule 17 (cross-ventilation
-    walls) is reported only and never flips the verdict.
+    UNLIVABLE iff any of rules 13-16 FAIL, or the geometry row G FAILS
+    (rooms outside the plot are unbuildable, hence unlivable). Rule 17
+    (cross-ventilation walls) is reported only and never flips the
+    verdict.
     """
     failed = [row["id"] for row in rules
               if row["id"] in LIVABILITY_IDS and row["status"] == "FAIL"]
+    if any(row["id"] == "G" and row["status"] == "FAIL" for row in rules):
+        failed = ["G"] + failed
     return (not failed, failed)
 
 
@@ -1392,32 +1400,34 @@ def _route_crosses(path, rects):
 
 # --- Rule checker: all 12 hard rules + geometry + design goals ---
 
-def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
-               livability=False):
+def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
     """Check one placed plan. Returns (rules, goals, quality).
 
-    rules: [{id, name, status, detail}] with status PASS/FAIL/PENDING.
+    rules: [{id, name, status, detail}] with status PASS/BEND/FAIL/PENDING.
+    BEND = requirement softened with a score penalty (relaxed size, missed
+    preference); FAIL on rules 13-16 marks the plan UNLIVABLE.
     Door/window rules are PENDING until Day 3 but already report the useful
     adjacency facts. goals: [{name, status, detail}] (MET/MISSED/N/A).
     quality: small dict of tiebreak facts for the scorer.
-    livability=True appends the strict rules 13-17 (UNLIVABLE verdict).
-    The search scores candidates WITHOUT them (report-only until placer
-    strategies land); only the winning plan gets the strict rows.
     """
     rules = []
     baths = [r for r in rects if r["type"] == "bathroom"]
     beds = [r for r in rects if r["type"] == "bedroom"]
     verandas = [r for r in rects if r["type"] == "veranda"]
 
-    # Rule 1: room sizes + never square.
-    size_problems = []
+    # Rule 1: room sizes + never square (relaxed sizes bend, never fail).
+    size_problems, size_bends = [], []
     for rect in rects:
-        problems = _check_room_size(rect, rects)
+        problems, bends = _check_room_size(rect, rects)
         size_problems.extend(problems)
-    rules.append(_rule("1", "Room sizes + never square",
-                       "FAIL" if size_problems else "PASS",
-                       "; ".join(size_problems) if size_problems
-                       else "all %d rooms in range, none square" % len(rects)))
+        size_bends.extend(bends)
+    relaxed_rooms = sorted({name for name, _text in size_bends})
+    bend_texts = [text for _name, text in size_bends]
+    status = "FAIL" if size_problems else ("BEND" if bend_texts else "PASS")
+    detail = ("; ".join(size_problems + bend_texts) if size_problems
+              else "; ".join(bend_texts) if bend_texts
+              else "all %d rooms in range, none square" % len(rects))
+    rules.append(_rule("1", "Room sizes + never square", status, detail))
 
     # Rules 2+3: corridors (the placer builds none; family living is the hub).
     corridors = [r for r in rects if r["type"] == "corridor"]
@@ -1591,8 +1601,7 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        "; ".join(geo_problems) if geo_problems
                        else "all %d rooms inside, no overlaps" % len(rects)))
 
-    if livability:
-        rules.extend(_check_livability(rects, road_side))
+    rules.extend(_check_livability(rects, road_side))
 
     # Design goals (soft): entry, outline, landscape, kitchen west.
     goals = []
@@ -1644,7 +1653,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
 
     quality = {"direct_doors": direct, "fallback_doors": fallback,
                "back_margin": back_margin, "west_met": west_met,
-               "windowed_beds": windowed_beds}
+               "windowed_beds": windowed_beds,
+               "relaxed_rooms": len(relaxed_rooms),
+               "relaxed_names": relaxed_rooms}
     return rules, goals, quality
 
 
@@ -1693,8 +1704,9 @@ def _check_kitchen_exterior(rects, road_side):
         notes.append("exterior %.1f ft %s" % (longest, wall))
     if west_best >= VENT_SIDE_FT - EPS:
         notes.append("west wall ventilated")
+        west_bend = None
     else:
-        notes.append("west preferred (west has %.1f ft)" % west_best)
+        west_bend = "west preferred (west has %.1f ft)" % west_best
     verandas = [r for r in rects if r["type"] == "veranda"
                 and r.get("veranda_for") == kitchen["name"]]
     if not verandas:
@@ -1709,8 +1721,12 @@ def _check_kitchen_exterior(rects, road_side):
             problems.append("veranda not on an exterior wall")
         else:
             notes.append("veranda on %s exterior" % side)
+    detail = "; ".join(problems + notes +
+                        ([west_bend] if west_bend is not None else []))
+    status = "FAIL" if problems else ("BEND" if west_bend is not None
+                                      else "PASS")
     return _rule("13", "Kitchen exterior wall + veranda on it",
-                 "FAIL" if problems else "PASS", "; ".join(problems + notes))
+                 status, detail)
 
 
 def _check_bedroom_walls(rects):
@@ -1719,21 +1735,26 @@ def _check_bedroom_walls(rects):
     if not beds:
         return _rule("14", "Bedroom window walls (6 ft+)",
                      "FAIL", "no bedrooms in plan")
-    lines, ok = [], True
+    lines, fails, bends = [], 0, 0
     for bed in beds:
         runs = _wall_runs(bed, rects)
         longest, wall = _longest_run(runs)
         sides = sum(1 for segs in runs.values()
                     if max([e - s for s, e in segs] or [0.0]) >= VENT_SIDE_FT - EPS)
         if longest < BEDROOM_MIN_WINDOW_FT - EPS:
-            ok = False
+            fails += 1
             lines.append("%s: best %.1f ft %s (%d window wall(s), needs 6)"
                          % (bed["name"], longest, wall, sides))
+        elif sides < 2:
+            bends += 1
+            lines.append("%s: %.1f ft %s (1 window wall; 2 better)"
+                         % (bed["name"], longest, wall))
         else:
-            lines.append("%s: %.1f ft %s (%d window wall(s))"
+            lines.append("%s: %.1f ft %s (%d window walls)"
                          % (bed["name"], longest, wall, sides))
+    status = "FAIL" if fails else ("BEND" if bends else "PASS")
     return _rule("14", "Bedroom window walls (6 ft+)",
-                 "PASS" if ok else "FAIL", "; ".join(lines))
+                 status, "; ".join(lines))
 
 
 def _check_toilet_exterior(rects):
@@ -1768,7 +1789,8 @@ def _check_circulation(rects):
     foyers = [r for r in rects if r["type"] == "foyer"]
     commons = [r for r in rects if r["type"] == "bathroom"
                and r["bathroom_kind"] != "attached"]
-    indoor = [r for r in rects if r["type"] not in ("porch", "veranda")]
+    indoor = [r for r in rects if r["type"] not in
+              ("porch", "veranda", "wardrobe", "storage")]
     targets = [r for r in indoor
                if not (r["type"] == "bathroom"
                        and r["bathroom_kind"] == "attached")]
@@ -1812,14 +1834,18 @@ def _check_circulation(rects):
 
 
 def _check_vent_walls(rects):
-    """Rule 17: living spaces + bedrooms on 2 exterior sides (reported)."""
+    """Rule 17 (soft): living spaces + bedrooms on 2 exterior sides.
+
+    Soft = ranks options but never flips the verdict. One-sided rooms
+    bend; a room with NO exterior wall fails.
+    """
     rooms = [r for r in rects
              if r["type"] in ("living room", "family living", "dining",
                               "bedroom")]
     if not rooms:
-        return _rule("17", "Cross-vent walls, 2 sides (reported only)",
+        return _rule("17", "Cross-vent walls, 2 sides (soft)",
                      "FAIL", "no living spaces/bedrooms in plan")
-    lines, ok = [], True
+    lines, fails, bends = [], 0, 0
     for room in rooms:
         runs = _wall_runs(room, rects)
         sides = sorted(wall for wall, segs in runs.items()
@@ -1829,13 +1855,16 @@ def _check_vent_walls(rects):
             pair = "opposite" if ({"W", "E"} <= set(sides)
                                   or {"S", "N"} <= set(sides)) else "adjacent"
             lines.append("%s: %s (%s)" % (room["name"], pair, "+".join(sides)))
+        elif len(sides) == 1:
+            bends += 1
+            lines.append("%s: 1 side (%s; 2 better)"
+                         % (room["name"], sides[0]))
         else:
-            ok = False
-            lines.append("%s: %d side(s) (%s)"
-                         % (room["name"], len(sides),
-                            "+".join(sides) if sides else "none"))
-    return _rule("17", "Cross-vent walls, 2 sides (reported only)",
-                 "PASS" if ok else "FAIL", "; ".join(lines))
+            fails += 1
+            lines.append("%s: NO exterior wall" % room["name"])
+    status = "FAIL" if fails else ("BEND" if bends else "PASS")
+    return _rule("17", "Cross-vent walls, 2 sides (soft)",
+                 status, "; ".join(lines))
 
 
 def _rule(rule_id, name, status, detail):
@@ -1849,15 +1878,28 @@ def _goal(name, status, detail):
 
 
 def _check_room_size(rect, rects):
-    """Rule 1 for one placed room. Returns a list of problem strings."""
-    problems = []
+    """Rule 1 for one placed room. Returns (problems, [(name, bend)]).
+
+    Wardrobe/store filler beside side-strip baths is leftover space, not a
+    room: exempt from size rules. Family/living rooms inside their relaxed
+    range bend instead of failing.
+    """
+    problems, bends = [], []
     name = rect["name"]
     kind = rect["type"]
     width, depth = rect["w"], rect["d"]
     if kind in SIZE_RULES:
         low, high = SIZE_RULES[kind]
+        relaxed = RELAXED_RANGES.get(kind)
         for side, label in ((width, "width"), (depth, "depth")):
-            if not low - EPS <= side <= high + EPS:
+            if low - EPS <= side <= high + EPS:
+                continue
+            if relaxed is not None and relaxed[0] - EPS <= side \
+                    <= relaxed[1] + EPS:
+                bends.append((name, "%s: %s %s relaxed (preferred %s-%s)" % (
+                    name, label, format_ft_in(side),
+                    format_ft_in(low), format_ft_in(high))))
+            else:
                 problems.append("%s: %s %s outside %s-%s" % (
                     name, label, format_ft_in(side),
                     format_ft_in(low), format_ft_in(high)))
@@ -1898,24 +1940,28 @@ def _check_room_size(rect, rects):
         if min(width, depth) < CORRIDOR_MIN_WIDTH_FT - EPS:
             problems.append("%s: narrower than %s" % (
                 name, format_ft_in(CORRIDOR_MIN_WIDTH_FT)))
+    elif kind in ("wardrobe", "storage"):
+        pass  # filler beside side-strip baths: leftover space, no rules
     else:
         problems.append("%s: unknown type '%s'" % (name, kind))
-    return problems
+    return problems, bends
 
 
 def _score(rules, goals, quality):
-    """One number per candidate: hard fails hurt most, goals break ties.
+    """One number per option: strict fails hurt most, bends cost a little.
 
-    Livability rows 13-17 NEVER score (report-only until placer
-    strategies land): counting them would silently change the winner,
-    and the placer is frozen until the next step. The verdict is
-    computed from the winning plan only (see livability_verdict).
+    Every FAIL costs 100 (rules 13-17 included: they rank options, while
+    only 13-16 flip the verdict). BEND rows cost 1, except rule 1, whose
+    relaxed rooms cost 2 each via quality. Goals and door facts break
+    ties; margins reward garden and punish overflow.
     """
-    fails = sum(1 for r in rules if r["status"] == "FAIL"
-                and r["id"] not in LIVABILITY_IDS and r["id"] != "17")
+    fails = sum(1 for r in rules if r["status"] == "FAIL")
+    bends = sum(1 for r in rules
+                if r["status"] == "BEND" and r["id"] != "1")
     met = sum(1 for g in goals if g["status"] == "MET")
-    return (-100 * fails + 5 * met + 2 * quality["direct_doors"]
+    return (-100 * fails - bends + 5 * met + 2 * quality["direct_doors"]
             + quality["windowed_beds"]
+            - 2 * quality["relaxed_rooms"]
             + 0.05 * max(0.0, quality["back_margin"])
             + 0.5 * min(0.0, quality["back_margin"]))
 
