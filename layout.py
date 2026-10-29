@@ -514,7 +514,7 @@ def _add_verandas(rects, targets, build_w, build_d, notes):
                             continue
                         if any(_area_overlap(cand, other) > EPS for other in rects):
                             continue
-                        if any(_rects_touch(cand, other, gap=0.5)
+                        if any(_rects_touch(cand, other, gap=0.0)
                                for other in verandas):
                             continue
                         placed = cand

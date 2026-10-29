@@ -101,6 +101,10 @@ _COMBINE_PATTERNS = (
     r"(?:[.,;]|$| for | with | during | as )",
 )
 
+# "X near Y" (proximity: a door-able shared wall).
+_NEAR_PATTERN = (r"([a-z ]+?)\s+near\s+(?:the\s+)?([a-z ]+?)"
+                 r"(?:[.,;]|$| and | for | with | during )")
+
 # "South facing master bedroom", "kitchen facing west".
 _FACING_PATTERNS = (
     (r"(north|south|east|west)[- ]facing\s+(?:the\s+)?([a-z ]+?)"
@@ -145,14 +149,16 @@ def _parse_wishes(wishes):
 
     Returns {"combine": [(type_a, type_b)], "garden": bool,
     "facing": [{"room", "side", "master", "second", "phrase"}],
-    "notes": []}. Bedroom combinations are refused (privacy); unknown
-    rooms are noted and skipped. The garden always sits beside the
-    living room for now. Facing wishes ("south facing master bedroom")
-    place that bedroom on the correct real-world side.
+    "near": [{"room", "near", "master", "phrase"}], "notes": []}.
+    Bedroom combinations are refused (privacy); unknown rooms are noted
+    and skipped. The garden always sits beside the living room for now.
+    Facing wishes ("south facing master bedroom") place that bedroom on
+    the correct real-world side. Near wishes ("a bedroom near family
+    living") are evaluated, not placed.
     """
     text = (wishes or "").strip().lower()
     directives = {"combine": [], "garden": False, "facing": [],
-                  "notes": []}
+                  "near": [], "notes": []}
     if not text:
         return directives
     seen = set()
@@ -196,6 +202,24 @@ def _parse_wishes(wishes):
                                "children")),
                 "phrase": phrase.strip(),
             })
+    seen_near = set()
+    for first, second in re.findall(_NEAR_PATTERN, text):
+        if any(word in first for word in ("garden", "courtyard", "lawn")):
+            continue  # the garden wish, not proximity
+        rooms = (_wish_room(first), _wish_room(second))
+        if (rooms[0], rooms[1]) in seen_near:
+            continue
+        seen_near.add((rooms[0], rooms[1]))
+        if rooms[0] is None or rooms[1] is None:
+            directives["notes"].append(
+                "Could not match rooms in '%s near %s'; skipped."
+                % (first.strip(), second.strip()))
+            continue
+        clean = re.sub(r"[^a-z ]", " ", first.strip().lower())
+        directives["near"].append(
+            {"room": rooms[0], "near": rooms[1],
+             "master": "master" in clean,
+             "phrase": "%s near %s" % (first.strip(), second.strip())})
     if "garden" in text or "courtyard" in text or "lawn" in text:
         directives["garden"] = True
         match = re.search(
@@ -430,11 +454,12 @@ def _wishes_table(rects, meta, buckets, directives, road, north_angle):
 
     Combine wishes are MET when the pair shares an open plan; facing
     wishes when the bedroom has a window-able (6 ft+) exterior wall on
-    the wished side (its veranda is ordered there best-effort); the
-    garden wish when a garden is placed. Pairs outside the program and
-    facing wishes for other rooms are SKIPPED (noted at parse/place
-    time, never ranked). Returns (rows, met, total): total counts MET +
-    NOT MET only, so skipped wishes never rank an option down.
+    the wished side (its veranda is ordered there best-effort); near
+    wishes when a door-able (3 ft+) wall is shared; the garden wish
+    when a garden is placed. Pairs outside the program and wishes for
+    missing rooms are SKIPPED (noted at parse/place time, never
+    ranked). Returns (rows, met, total): total counts MET + NOT MET
+    only, so skipped wishes never rank an option down.
     """
     rows = []
     achieved = set()
@@ -469,6 +494,25 @@ def _wishes_table(rects, meta, buckets, directives, road, north_angle):
         ext = _exterior_walls(bed, others).get(wall, 0.0)
         rows.append((text, "MET"
                      if ext >= BEDROOM_MIN_WINDOW_FT - EPS else "NOT MET"))
+    for wish in directives["near"]:
+        if wish["room"] == "bedroom":
+            if wish["master"]:
+                group_a = [_by_name(rects, beds[0]["name"])] if beds else []
+            else:
+                group_a = [_by_name(rects, bed["name"]) for bed in beds]
+            group_a = [r for r in group_a if r is not None]
+            label = ("Master bedroom" if wish["master"] else "Bedroom") \
+                + " near " + wish["near"]
+        else:
+            group_a = [r for r in rects if _room_type(r) == wish["room"]]
+            label = wish["room"].capitalize() + " near " + wish["near"]
+        group_b = [r for r in rects if _room_type(r) == wish["near"]]
+        if not group_a or not group_b:
+            rows.append((label, "SKIPPED"))
+            continue
+        near = any(shared_wall(a, b) >= 3 - EPS
+                   for a in group_a for b in group_b)
+        rows.append((label, "MET" if near else "NOT MET"))
     if directives["garden"]:
         rows.append(("Garden with the living room", "MET"
                      if any(r["type"] == "garden" for r in rects)
@@ -718,6 +762,32 @@ def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
                                len(moved[target]))
                 moved[target][pos:pos] = [side_list[at[0]]]
                 variants.append(moved)
+        if len(beds) > 3 and 2 not in face_sides \
+                and 2 not in face_positions:
+            # Floated beds[2] (4+ beds only): the third bedroom tries
+            # the kitchen side too, inserted before the kitchen, so one
+            # side is not stacked doorless. Wishes pin it otherwise.
+            names = {b["name"] for b in bath_of.get(beds[2]["name"], [])}
+            for side_index, side_list in enumerate(order):
+                at = [i for i, slot in enumerate(side_list)
+                      if slot[1].get("name") == beds[2]["name"]]
+                if not at or side_index == kitchen_side:
+                    continue
+                i = at[0]
+                baths = side_list[i + 1:i + 1 + len(names)]
+                if len(baths) != len(names) or any(
+                        s[0] != "bath" or s[1].get("name") not in names
+                        for s in baths):
+                    continue
+                moved = [list(side) for side in order]
+                block = [side_list[i]] + baths
+                del moved[side_index][i:i + len(block)]
+                kitchen_at = [j for j, slot in enumerate(moved[kitchen_side])
+                              if slot[0] == "kitchen"]
+                at_k = kitchen_at[0] if kitchen_at \
+                    else len(moved[kitchen_side])
+                moved[kitchen_side][at_k:at_k] = block
+                variants.append(moved)
     return variants, valid_pairs, merge_lk
 
 
@@ -945,6 +1015,18 @@ def _spine_rooms(buckets, living_out):
     return sorted(rooms, key=lambda r: SPINE_ORDER.index(_room_type(r)))
 
 
+def _spine_cap(spine_rooms, width):
+    """Tallest preferred spine (foyer capped at 8, like the placer)."""
+    total = 0.0
+    for room in spine_rooms:
+        preferred, relaxed = _depth_options(room, width)
+        if _room_type(room) == "foyer":
+            preferred = [d for d in preferred if d <= 8 + EPS]
+        options = preferred or relaxed
+        total += max(options) if options else 0.0
+    return total
+
+
 def _living_out(buckets, center_w, avail, directives):
     """Living room leaves the spine for a side-strip front corner when the
     4-room spine cannot fit, when a wish combines it, or when the wished
@@ -1002,8 +1084,9 @@ def _place_garden(rects, living, strip_x0, strip_w, notes):
         notes.append("No room for the wished garden in front of %s; skipped."
                      % living["name"])
         return None
+    depth = min(gap, 8.0)
     garden = _as_rect({"name": "Garden", "type": "garden"},
-                      strip_x0, 0.0, strip_w, min(gap, 8.0))
+                      strip_x0, living["y"] - depth, strip_w, depth)
     garden["garden_for"] = living["name"]
     if any(_area_overlap(garden, other) > 0.01 for other in rects):
         notes.append("No clear spot for the wished garden; skipped.")
@@ -1098,6 +1181,10 @@ def _master_bounds(placed, master_name):
         for room in other_baths:
             bounds[room["name"]] = (6.0, room["d"])
     return bounds
+
+
+# Second-pass back notches: lower tops keep a shrunk back bedroom's door.
+_PASS2_TOPS = tuple(-float(i) for i in range(13))
 
 
 def _stack_with_garden(slots, strip_x, strip_w, build_d, spans, notes,
@@ -1219,9 +1306,10 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
     if living_out:
         notes.append("Living Room moves to a front corner (%s); the spine "
                      "holds foyer, dining, family." % reason)
+    rooms = _spine_rooms(buckets, living_out)
+    height = min(build_d - y0, _spine_cap(rooms, center_w))
     spine, relaxed, tried = _place_spine(
-        _spine_rooms(buckets, living_out), x0 + side_w, center_w, y0,
-        build_d - y0, notes)
+        rooms, x0 + side_w, center_w, y0, height, notes)
     spans = _spine_spans(spine)
     variants, valid_pairs, _merge_lk = _assign_three_strip(
         buckets, kitchen_strip, master_strip, notes, directives, living_out,
@@ -1244,24 +1332,29 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
         if bounds:
             # Second pass: master largest, others shrink first; keep it
             # when rule 19 holds with no new fatal door miss (soft
-            # kitchen/living misses may trade for the hard size rule).
+            # kitchen/living misses may trade for the hard size rule,
+            # and so may the wished garden: hard rules beat wishes).
+            garden1 = garden_ok
             try:
                 second = _stack_variant(
                     order, x0, side_w, center_w, build_d, spans, notes,
                     base_min, directives, depth_bounds=bounds,
-                    tops=(0.0, -1.0, -2.0))
+                    tops=_PASS2_TOPS)
             except _Infeasible:
                 second = None
             fatal2 = _fatal_count(order, second[0], spans) \
                 if second is not None else None
             if second is not None and fatal2 <= fatal \
-                    and (second[3] or not garden_ok) \
                     and not _master_bounds(second[0], master_name):
                 tribe, satisfied, adds, garden_ok, fatal = \
                     second[0], second[1], adds + second[2], second[3], \
                     fatal2
                 upgraded = True
-        key = (-fatal, not _master_bounds(tribe, master_name), satisfied)
+                if garden1 and not garden_ok:
+                    notes.append("Garden dropped: the master-size rule "
+                                 "wins (hard rules beat wishes).")
+        key = (-fatal, not _master_bounds(tribe, master_name), garden_ok,
+               satisfied)
         if best is None or key > best[0]:
             best = (key, tribe, tried_all + adds, garden_ok, living_side,
                     upgraded)
@@ -1381,9 +1474,10 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
     if living_out:
         notes.append("Living Room moves to a front corner (%s); the spine "
                      "holds foyer, dining, family." % reason)
+    rooms = _spine_rooms(buckets, living_out)
+    height = min(build_d - y0, _spine_cap(rooms, center_w))
     spine, relaxed, tried = _place_spine(
-        _spine_rooms(buckets, living_out), spine_x, center_w, y0,
-        build_d - y0, notes)
+        rooms, spine_x, center_w, y0, height, notes)
     spans = _spine_spans(spine)
     slots, valid_pairs, _merge_lk = _assign_two_strip(
         buckets, notes, kitchen_first, directives, living_out, road,
@@ -1404,22 +1498,26 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
     if bounds:
         # Second pass: master largest, others shrink first; keep it
         # when rule 19 holds with no new fatal door miss (soft
-        # kitchen/living misses may trade for the hard size rule).
+        # kitchen/living misses may trade for the hard size rule,
+        # and so may the wished garden: hard rules beat wishes).
+        garden1 = garden_ok
         try:
             second, garden2, count2 = _stack_with_garden(
                 slots, side_x, side_w, build_d, spans, notes,
                 outer_east=not side_west, base_min=base_min,
                 want_garden=bool(directives["garden"]) and has_living,
-                depth_bounds=bounds, tops=(0.0, -1.0, -2.0))
+                depth_bounds=bounds, tops=_PASS2_TOPS)
         except _Infeasible:
             second = None
         fatal2 = _fatal_count([slots], second[0], spans) \
             if second is not None else None
         if second is not None and fatal2 <= fatal \
-                and (garden2 or not garden_ok) \
                 and not _master_bounds(second[0], master_name):
             stacked, garden_ok, count = second, garden2, count + count2
             notes.append("Master kept largest (other rooms shrunk first).")
+            if garden1 and not garden_ok:
+                notes.append("Garden dropped: the master-size rule "
+                             "wins (hard rules beat wishes).")
             notch = build_d - max(r["y"] + r["d"] for r in second[0])
             if notch > 0.25:
                 notes.append("%d-ft back notch keeps bedroom doors."
