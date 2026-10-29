@@ -5,11 +5,13 @@
 #   1. Buckets the room program by role, builds placed-rectangle dicts, and
 #      adds the porch + verandas to any placed plan.
 #   2. Checks a placed plan against the hard rules 1-12, geometry row G, the
-#      strict livability rules 13-17, and the soft design goals, reporting
-#      PASS / BEND / FAIL / PENDING for each (door/window rules stay PENDING
-#      until Day 3, when doors and windows are modeled).
+#      strict livability rules 13-17, toilet real sizes (18), and the soft
+#      design goals, reporting PASS / BEND / FAIL / PENDING for each
+#      (door/window rules stay PENDING until Day 3, when doors and windows
+#      are modeled).
 #   3. Scores an option for ranking, and gives the LIVABLE/UNLIVABLE verdict
-#      (UNLIVABLE iff rules 13-16 or geometry G fail; rule 17 never flips it).
+#      (UNLIVABLE iff rules 7, 13-16 or geometry G fail; rule 17 never
+#      flips it).
 #
 # Local frame (everything is placed here, the drawing rotates it later):
 #   - x runs parallel to the road, from the viewer's left (standing at the
@@ -29,7 +31,11 @@ import math
 
 from ai_program import (
     CORRIDOR_MIN_WIDTH_FT,
+    MASTER_TOILET_D_RANGE,
+    MASTER_TOILET_W_RANGE,
     SIZE_RULES,
+    TOILET_D_RANGE,
+    TOILET_W_RANGE,
     format_ft_in,
 )
 
@@ -544,8 +550,9 @@ def _veranda_rect(room, wall, segment, proj):
 
 # --- Livability helpers (strict Day-2 checks; 13-16 + G decide the verdict) ---
 
-# Hard-rule ids that decide the UNLIVABLE verdict (user items 1-4).
-LIVABILITY_IDS = ("13", "14", "15", "16")
+# Hard-rule ids that decide the UNLIVABLE verdict: toilets (7) plus the
+# strict livability checks (13-16). Geometry G joins them (see verdict).
+LIVABILITY_IDS = ("7", "13", "14", "15", "16")
 
 # Kitchen needs this much continuous exterior wall (ventilation opening
 # plus the veranda door share it). Architect to confirm the 6 ft bar:
@@ -569,10 +576,10 @@ NEIGHBOUR_FT = 0.5
 def livability_verdict(rules):
     """(livable, failed_ids) from finished rule rows.
 
-    UNLIVABLE iff any of rules 13-16 FAIL, or the geometry row G FAILS
-    (rooms outside the plot are unbuildable, hence unlivable). Rule 17
-    (cross-ventilation walls) is reported only and never flips the
-    verdict.
+    UNLIVABLE iff any of rules 7, 13-16 FAIL, or the geometry row G
+    FAILS (rooms outside the plot are unbuildable, hence unlivable).
+    Rule 17 (cross-ventilation walls) is reported only and never flips
+    the verdict.
     """
     failed = [row["id"] for row in rules
               if row["id"] in LIVABILITY_IDS and row["status"] == "FAIL"]
@@ -590,11 +597,12 @@ def _compass_west_wall(road_side):
 def _room_blockers(rects, rect):
     """Rects that block `rect`'s walls: toilets and rooms, never outdoor.
 
-    Porch/verandas are outdoor space, so a wall facing them (including
-    the room's own veranda) still counts as exterior, per the rules.
+    Porch/verandas/gardens are outdoor space, so a wall facing them
+    (including the room's own veranda) still counts as exterior.
     """
     return [other for other in rects
-            if other is not rect and other["type"] not in ("porch", "veranda")]
+            if other is not rect
+            and other["type"] not in ("porch", "veranda", "garden")]
 
 
 def _wall_runs(rect, rects):
@@ -861,6 +869,21 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
 
     rules.extend(_check_livability(rects, road_side))
 
+    # Rule 18: toilet real sizes (per-side ranges, master bounds).
+    bath_problems = []
+    for rect in rects:
+        if rect["type"] == "bathroom":
+            bath_problems.extend(_check_bath_size(rect, rects))
+    if bath_problems:
+        detail_18 = "; ".join(bath_problems)
+    elif baths:
+        detail_18 = "all %d toilets sized 4-6 x 6-8.5 (master to 6.5 x 10)" \
+            % len(baths)
+    else:
+        detail_18 = "no toilets"
+    rules.append(_rule("18", "Toilet real sizes",
+                       "FAIL" if bath_problems else "PASS", detail_18))
+
     # Design goals (soft): entry, outline, landscape, kitchen west.
     goals = []
     porch = [r for r in rects if r["type"] == "porch"]
@@ -883,7 +906,7 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
                        else "plain rectangle"))
     back_margin = build_d - info["house_back"]
     house_area = sum(r["w"] * r["d"] for r in rects
-                     if r["type"] not in ("porch", "veranda"))
+                     if r["type"] not in ("porch", "veranda", "garden"))
     goals.append(_goal("Landscape left on big plots",
                        "MET" if back_margin >= 0 and (back_margin >= 4 or
                        house_area <= 0.85 * build_w * build_d) else "MISSED",
@@ -1048,7 +1071,7 @@ def _check_circulation(rects):
     commons = [r for r in rects if r["type"] == "bathroom"
                and r["bathroom_kind"] != "attached"]
     indoor = [r for r in rects if r["type"] not in
-              ("porch", "veranda", "wardrobe", "storage")]
+              ("porch", "veranda", "wardrobe", "storage", "garden")]
     targets = [r for r in indoor
                if not (r["type"] == "bathroom"
                        and r["bathroom_kind"] == "attached")]
@@ -1200,9 +1223,52 @@ def _check_room_size(rect, rects):
                 name, format_ft_in(CORRIDOR_MIN_WIDTH_FT)))
     elif kind in ("wardrobe", "storage"):
         pass  # filler beside side-strip baths: leftover space, no rules
+    elif kind == "bathroom":
+        pass  # rule 18 checks toilet real sizes (per-side ranges)
+    elif kind == "garden":
+        pass  # outdoor landscape from wishes, no size rules
     else:
         problems.append("%s: unknown type '%s'" % (name, kind))
     return problems, bends
+
+
+def _check_bath_size(rect, rects):
+    """Rule 18 for one placed toilet. Returns a list of problem strings.
+
+    Per-side ranges: 4-6 ft wide (road-parallel) by 6 ft to 8 ft 6 in
+    long; the toilet attached to the largest bedroom may be up to
+    6 ft 6 in by 10 ft. Never-square still applies. Toilets are never
+    stretched to fill a strip.
+    """
+    problems = []
+    name = rect["name"]
+    width, depth = rect["w"], rect["d"]
+    master, best_area = "", 0.0
+    for other in rects:
+        if other["type"] == "bedroom":
+            area = other["w"] * other["d"]
+            if area > best_area:
+                master, best_area = other["name"], area
+    if master and rect.get("attached_to", "") == master:
+        w_low, w_high = MASTER_TOILET_W_RANGE
+        d_low, d_high = MASTER_TOILET_D_RANGE
+        bounds = "master"
+    else:
+        w_low, w_high = TOILET_W_RANGE
+        d_low, d_high = TOILET_D_RANGE
+        bounds = "standard"
+    if not w_low - EPS <= width <= w_high + EPS:
+        problems.append("%s: width %s outside %s toilet %s-%s" % (
+            name, format_ft_in(width), bounds,
+            format_ft_in(w_low), format_ft_in(w_high)))
+    if not d_low - EPS <= depth <= d_high + EPS:
+        problems.append("%s: depth %s outside %s toilet %s-%s" % (
+            name, format_ft_in(depth), bounds,
+            format_ft_in(d_low), format_ft_in(d_high)))
+    if abs(width - depth) < 1 - EPS:
+        problems.append("%s: %s x %s is square-ish" % (
+            name, format_ft_in(width), format_ft_in(depth)))
+    return problems
 
 
 def _score(rules, goals, quality):

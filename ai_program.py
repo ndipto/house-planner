@@ -29,15 +29,25 @@ BASE_URL = "https://api.meta.ai/v1"
 
 # --- Size rules (from PROJECT.md, architect's design rules) ---
 # Each entry: room type -> (minimum side in ft, maximum side in ft).
-# BOTH sides of the room must fall inside this range.
+# BOTH sides of the room must fall inside this range. Bathrooms are NOT
+# here: toilets have per-side ranges (below), so they are checked apart.
 SIZE_RULES = {
     "bedroom": (10, 15),
     "kitchen": (8, 15),
     "living room": (12, 15),
     "family living": (12, 15),
     "dining": (10, 14),
-    "bathroom": (6, 10),
 }
+
+# Toilet real sizes (architect's own practice, Oct 29): narrow
+# (road-parallel) side 4-6 ft, long side 6 ft to 8 ft 6 in. The master
+# toilet (attached to the largest bedroom) may be up to 6 ft 6 in wide
+# by 10 ft long. Never-square still applies. Toilets are NEVER stretched
+# to fill a strip; leftover space becomes wardrobe, store, or open notch.
+TOILET_W_RANGE = (4.0, 6.0)
+TOILET_D_RANGE = (6.0, 8.5)
+MASTER_TOILET_W_RANGE = (4.0, 6.5)
+MASTER_TOILET_D_RANGE = (6.0, 10.0)
 
 # Corridors are long and thin: only the narrow side is checked.
 CORRIDOR_MIN_WIDTH_FT = 3.5  # 3'-6"
@@ -149,7 +159,7 @@ ROOM SIZES (both sides of each room must be inside its range):
 - living room: 12 to 15 ft per side
 - family living: 12 to 15 ft per side
 - dining: 10 to 14 ft per side
-- bathroom: 6 to 10 ft per side (one side of 7 ft preferred)
+- bathroom: 4 to 6 ft wide (road-parallel side) by 6 ft to 8 ft 6 in long; the master toilet (attached to the largest bedroom) may be up to 6 ft 6 in by 10 ft
 - corridor: at least 3 ft 6 in wide (long and thin is fine)
 A room is NEVER square: its two sides must differ by at least 1 ft (corridors exempt).
 
@@ -190,8 +200,8 @@ REPLY FORMAT: reply with JSON only, exactly this shape, no extra text:
     {
       "name": "Common Toilet",
       "type": "bathroom",
-      "width_ft": 7,
-      "depth_ft": 8,
+      "width_ft": 5,
+      "depth_ft": 7.5,
       "adjacencies": ["Dining"],
       "door_opens_into": "Dining",
       "needs_veranda": false,
@@ -265,16 +275,34 @@ def _ask_model(client, system_prompt, messages):
         return response.choices[0].message.content
 
 
+def _master_bedroom_name(rooms):
+    """Name of the largest bedroom by area ("" when none is sized)."""
+    best_name, best_area = "", 0.0
+    for room in rooms or []:
+        if str(room.get("type", "")).strip().lower() != "bedroom":
+            continue
+        try:
+            area = float(room.get("width_ft")) * float(room.get("depth_ft"))
+        except (TypeError, ValueError):
+            continue
+        if area > best_area:
+            best_name, best_area = room.get("name", "?"), area
+    return best_name
+
+
 def check_room_sizes(rooms):
     """Check each room against SIZE_RULES in plain Python.
 
     Returns a list of problem strings. An empty list means all good.
     Checks: both sides inside the type's range, never square
     (sides differ by at least 1 ft). Corridors only need min width.
-    Porch, foyer, veranda sizes are not fixed yet, so they are skipped.
+    Bathrooms use the per-side toilet ranges (master bounds for the
+    toilet attached to the largest bedroom). Porch, foyer, veranda
+    sizes are not fixed yet, so they are skipped.
     All dimensions are shown in feet and inches.
     """
     problems = []
+    master = _master_bedroom_name(rooms)
 
     for room in rooms:
         name = room.get("name", "?")
@@ -284,6 +312,38 @@ def check_room_sizes(rooms):
 
         # Skip types with no fixed sizes yet.
         if room_type in ("porch", "foyer", "veranda"):
+            continue
+
+        # Bathrooms: per-side toilet ranges + never square.
+        if room_type == "bathroom":
+            if width is None or depth is None:
+                problems.append(f"{name}: missing width or depth.")
+                continue
+            if master and str(room.get("attached_to", "")).strip() == master:
+                w_low, w_high = MASTER_TOILET_W_RANGE
+                d_low, d_high = MASTER_TOILET_D_RANGE
+                bounds = "master"
+            else:
+                w_low, w_high = TOILET_W_RANGE
+                d_low, d_high = TOILET_D_RANGE
+                bounds = "standard"
+            if not (w_low <= width <= w_high):
+                problems.append(
+                    f"{name}: width {format_ft_in(width)} is outside "
+                    f"{bounds} toilet {format_ft_in(w_low)}-"
+                    f"{format_ft_in(w_high)}."
+                )
+            if not (d_low <= depth <= d_high):
+                problems.append(
+                    f"{name}: depth {format_ft_in(depth)} is outside "
+                    f"{bounds} toilet {format_ft_in(d_low)}-"
+                    f"{format_ft_in(d_high)}."
+                )
+            if abs(width - depth) < 1:
+                problems.append(
+                    f"{name}: {format_ft_in(width)} x {format_ft_in(depth)} "
+                    "is square-ish; sides must differ by at least 1 ft."
+                )
             continue
 
         # Corridor: only check the narrow side (min width).

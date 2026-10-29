@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Day 2 done Oct 29 — typology placer builds 3 options (A/B/C) side by side with scores; 40x60 North 3-bed/3-toilet demo all LIVABLE (B bends kitchen-west).
+**Status:** Day 2 done Oct 29 — typology placer fits options inside the plot (G hard), real toilet sizes (rule 18), rule 7 hard, wishes shape the plan (combined spaces, garden); 45x55 South 2-bed + 40x60 North 3-bed demos all LIVABLE.
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -23,7 +23,7 @@ This is a **concept tool**, not construction documents. It helps a family see th
 ## How it works (4 steps)
 
 1. **Brief → room program (AI).** Muse Spark, called through the Meta Model API, reads the user's brief and returns structured JSON: for each room its name, type, target area, min/max dimensions, required adjacencies (e.g. kitchen next to dining), orientation preferences (e.g. bedrooms face south/southeast), plus a short "design reasoning" paragraph written in an architect's voice.
-2. **Room program → layout (plain Python, no AI).** Simple, well-commented Python builds THREE options (A/B/C) from the architect's own planning typologies (see Zoning strategy), places rooms as non-overlapping rectangles inside the buildable area, and checks every option against the HARD RULES in "Design Rules (from the architect)" below. Each option shows its score and which rules pass, bend or fail; on impossible plots the app says so honestly instead of drawing a broken plan.
+2. **Room program → layout (plain Python, no AI).** Simple, well-commented Python builds THREE options (A/B/C) from the architect's own planning typologies (see Zoning strategy), shaped by the client's wishes (combined spaces placed adjacent as one open space; a wished garden buffers the living room). Geometry is a HARD constraint: nothing is ever placed outside the buildable area — an option that cannot fit is skipped with a clear reason. Every option is checked against the HARD RULES in "Design Rules (from the architect)" below and shows its score plus pass/bend/fail per rule.
 3. **Layout → drawing (SVG).** The app draws a clean, dimensioned 2D plan in SVG format with room names, areas, doors, windows, overall dimensions, and a north arrow / scale note.
 4. **Stretch goals (only if time allows):**
    - **Muse Image** generates one exterior concept render from the plan/brief.
@@ -61,7 +61,7 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 4. Kitchen has exactly one inner door, opening into dining, plus ONE allowed exception: a second door to its own veranda (decided Oct 29).
 5. Every bedroom door opens into family living; if impossible — defined as no shared wall length left for a 3 ft door — into dining; NEVER into the living room. Report which bedrooms used the dining fallback.
 6. Every bedroom has at least 1 window (2 preferred).
-7. Toilets (client enters 1 to bedrooms + 1, no default): EXACTLY that many bathrooms. Exactly 1 is COMMON with a door to common space (dining, family living, or corridor), reachable without passing through any bedroom. All others are ATTACHED: master (largest) bedroom first, then next largest bedrooms, one each. 1-bedroom home: the single toilet is common; a 2nd toilet attaches to the master. Example: 3 bedrooms + 3 toilets = 2 attached + 1 common.
+7. Toilets (client enters 1 to bedrooms + 1, no default): EXACTLY that many bathrooms. Exactly 1 is COMMON with a door to common space (dining, family living, or corridor), reachable without passing through any bedroom. All others are ATTACHED: master (largest) bedroom first, then next largest bedrooms, one each. 1-bedroom home: the single toilet is common; a 2nd toilet attaches to the master. Example: 3 bedrooms + 3 toilets = 2 attached + 1 common. HARD rule: failing it marks the plan UNLIVABLE.
 8. Bathrooms touch an exterior wall (for ventilation). Never place a bathroom on the front (road) wall; if unavoidable, report it as a violation.
 9. Bathroom/toilet windows NEVER face the front (road) side.
 10. Verandas: up to 2 bedrooms get a veranda each (if fewer than 2 bedrooms, every bedroom gets one), and the kitchen has a veranda. Each veranda is separate — two verandas never connect/touch. Veranda width 3 to 5 ft; length at least 3 ft and never longer than its room's wall.
@@ -72,13 +72,16 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 15. Toilet exterior wall: every toilet has an exterior wall (enforced alongside rule 8 for the verdict).
 16. Circulation: the route from every bedroom to the common toilet, and from the foyer to every indoor room except attached baths, passes only through foyer, living room, dining and family living — NEVER through the kitchen, a bedroom or a toilet. Attached baths are entered through their bedroom; porch/verandas through their host room; wardrobe/store filler is not a room (all excluded as targets). Adjacency means a shared wall; door-sized refinement arrives Day 3.
 17. Cross-ventilation walls (soft): living room, family living, dining and bedrooms need exterior walls on 2 sides (opposite preferred). One-sided rooms BEND (-1); a room with NO exterior wall FAILS (-100). Reported per room, never flips the verdict (openings modeled Day 3).
-Failing any of rules 13-16, or geometry row G (rooms outside the plot / overlaps — unbuildable means unlivable), marks the plan UNLIVABLE (red) in the UI. Score: every FAIL -100, every BEND -1 (rule 1 bends -2 per relaxed room instead), goals/doors break ties.
+18. Toilet real sizes (architect's own practice): common and attached toilets 4'-0" to 6'-0" wide (road-parallel side) by 6'-0" to 8'-6" long; the master toilet (attached to the largest bedroom) may be up to 6'-6" x 10'-0". Never-square still applies. Toilets are NEVER stretched to fill a strip: attached baths sit on the outer wall with a wardrobe/store beside them; the common bath sits on the spine with an open notch outside it.
+Failing any of rules 7, 13-16, or geometry row G (rooms outside the plot / overlaps — unbuildable means unlivable), marks the plan UNLIVABLE (red) in the UI. Score: every FAIL -100, every BEND -1 (rule 1 bends -2 per relaxed room instead), goals/doors break ties.
 
 **Zoning strategy (the architect's own planning typologies, Oct 29):** local frame with the road at the bottom; all dimensions rounded to 6 inches; side strips 10-15 ft, center strip 10-15 ft.
 - THREE-STRIP (main pattern): CENTER strip = public spine front-to-back (foyer/entry with porch outside toward the road, living room, dining, family living; NO corridor; family may take a back veranda). LEFT/RIGHT strips = rooms needing exterior walls (bedrooms, kitchen, toilets), each touching the outer side wall. Bedrooms take corners when possible (master at a back corner); toilets sit between bedrooms against the outer wall (leftover width becomes wardrobe/store); kitchen mid-strip next to dining, door into dining; every side room's door opens into the adjacent center room (bedrooms into family/dining never living, common toilet off dining/family). Side strips narrow to 10 ft when a common bath needs a full-width spine door.
 - NARROW plots (buildable width under 30 ft): TWO strips (center spine + one side strip).
 - L-SHAPE WITH COURT (buildable width 45 ft+ and only when it fits): front wing for foyer/living/dining/kitchen joined to a side wing for family living + bedrooms; landscape/court fills the open corner.
 - THREE OPTIONS side by side: A = three-strip, kitchen WEST in real orientation; B = three-strip mirrored (kitchen other side, master other back corner); C = L-shape when it fits, else a third three-strip variant. Genuinely different; each shows score + pass/bend/fail.
+- FITTING LADDER (geometry is hard; skip + message instead of broken plans): full buildable width minus 3 ft veranda margins each side when width allows; living room to a FRONT corner of a side strip next to the foyer (architect's own pattern) so the spine holds only foyer, dining, family; small foyer (about 6 ft deep); wished merges shorten the spine; then min-depths.
+- WISHES SHAPE THE PLAN: "combined X and Y" / "X and Y as one space" / "open-plan X Y" places both adjacent as one open gathering space (living+kitchen repositions; other pairs verified, 6 ft+ shared); "garden with the living room" places a small garden (dashed in the drawing) buffering the living front. Bedrooms never combine (privacy).
 
 **Orientation preferences (Bangladesh tropical monsoon climate — placer follows in order, reports results):** Bedrooms and living prefer windows facing south/southeast (prevailing breeze); avoid large west-facing openings in bedrooms and living (afternoon heat); the kitchen prefers the WEST side (common Bangladeshi practice: option A takes the west strip, B mirrors it, misses bend rule 13).
 
@@ -105,7 +108,8 @@ Failing any of rules 13-16, or geometry row G (rooms outside the plot / overlaps
 - Orientation: south/southeast windows for breeze, no large west openings in bedrooms/living, kitchen west.
 - Overall approach approved: checker (pass/fail per rule, always shown) + placer (priority order); on impossible plots show the best attempt plus the failed rules.
 - Typologies (Oct 29, from the architect's own practice): three-strip main pattern, two-strip under 30 ft buildable, L-shape with court at 45 ft+ when it fits; options A/B/C as above.
-- Bends (Oct 29): soft misses (relaxed sizes, kitchen-west, one window wall, one-sided vent) cost -1 (rule 1: -2/room) and never flip the verdict; only FAILs on 13-16 and G mark UNLIVABLE.
+- Bends (Oct 29): soft misses (relaxed sizes, kitchen-west, one window wall, one-sided vent) cost -1 (rule 1: -2/room) and never flip the verdict; only FAILs on 7, 13-16 and G mark UNLIVABLE.
+- Fit + wishes (Oct 29, architect's practice): geometry G is a placement constraint (skip + reason, never overflow); toilet real sizes are rule 18 (not stretched); rule 7 is verdict-hard; living-out front corner, merges, and garden-from-wishes as above. Combined spaces share one open rectangle (dividing wall omitted Day 3).
 - Known honest limits (Oct 29): spine living/dining are often 0-1-sided (rule 17 reports, verdict unaffected); corner bedrooms lose verandas when side margins run under 3 ft (rule 10 reports); narrow 2-bed overconstrains one strip (UNLIVABLE, option C saves 1-bed); shallow plots need the L (three-strip overflows honestly).
 
 ## Tech stack
@@ -166,6 +170,7 @@ Update this list as we go (each item: date + one line).
 - [x] Oct 29 (Day 2): room layout + plan drawing (layout.py, draw.py, app plan section, test_layout.py); 40x60 South 3-bed/3-toilet demo passes all checkable rules, impossible plots show best attempt + failed rules.
 - [x] Oct 29 (Day 2 update): strict livability checks 13-17 + UNLIVABLE verdict (checker only, placer frozen); demo UNLIVABLE on 13, 14, 16.
 - [x] Oct 29 (Day 2 update): three-strip typology placer + 3 options side by side (typology.py replaces the band placer; bends, relaxed sizes, G joins verdict); 40x60 North 3/3 all LIVABLE.
+- [x] Oct 29 (Day 2 update): fit to plot (G hard, living-out, small foyer, skip + message), real toilet sizes (rule 18), rule 7 hard, wishes shape layout (open plan, garden); 45x55 South 2/2 + 40x60 North 3/3 all LIVABLE.
 - [x] Oct 30: `layout.py` — placement + rule checks working (done Oct 29, Day 2).
 - [x] Oct 31: `draw.py` — SVG plan rendering (done Oct 29, Day 2).
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).

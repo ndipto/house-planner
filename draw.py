@@ -142,8 +142,10 @@ def _room_group(room, point, scale):
     except (TypeError, ValueError):
         area = ""
     cx = x + width / 2
+    dash = ' stroke-dasharray="7 4"' if room.get("type") == "garden" else ""
     out = ['<g><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
-           'fill="#fff" stroke="#000" stroke-width="1.6"/>' % (x, y, width, height)]
+           'fill="#fff" stroke="#000" stroke-width="1.6"%s/>'
+           % (x, y, width, height, dash)]
     if height < 24:
         out.append('<text x="%.1f" y="%.1f" font-size="9" text-anchor="middle">%s'
                    "</text>" % (cx, y + height / 2 + 3, escape(label)))

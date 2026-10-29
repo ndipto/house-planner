@@ -165,6 +165,7 @@ if st.button("Generate room program"):
         try:
             options_result = build_options(
                 rooms, plot_width, plot_depth, road_side, num_toilets,
+                wishes,
             )
         except Exception as err:
             st.error("Could not lay out the plan: %s" % err)
