@@ -439,12 +439,13 @@ def _exterior_segments(rect, others, wall):
     return [(s, e) for s, e in segments if e - s > EPS]
 
 
-def _veranda_targets(buckets, rects, notes):
+def _veranda_targets(buckets, rects, notes, wall_first=None):
     """Which rooms get a veranda: flags say, capped at 2 bedrooms + kitchen.
 
     `needs_veranda` flags come from the AI. When nothing is flagged at all,
     the two largest bedrooms + kitchen are veranda'd automatically (rule 10).
-    Returns [(room_rect, wall_order), ...].
+    wall_first ({room name: wall}) tries a facing-wished wall before the
+    default order. Returns [(room_rect, wall_order), ...].
     """
     beds = [r for r in rects if r["type"] == "bedroom"]
     flagged_beds = [r for r in beds if r["needs_veranda"]][:2]
@@ -457,8 +458,14 @@ def _veranda_targets(buckets, rects, notes):
         if flagged_beds or flagged_kitchen:
             notes.append("Verandas auto-added (2 largest bedrooms + kitchen); "
                          "the program flagged none.")
-    targets = [(_by_name(rects, r["name"]), ["W", "E", "N", "S"])
-               for r in flagged_beds]
+    targets = []
+    for room in flagged_beds:
+        order = ["W", "E", "N", "S"]
+        first = (wall_first or {}).get(room["name"])
+        if first in order:
+            order.remove(first)
+            order.insert(0, first)
+        targets.append((_by_name(rects, room["name"]), order))
     targets += [(_by_name(rects, r["name"]), ["W", "E", "N", "S"])
                 for r in flagged_kitchen]
     return [(room, walls) for room, walls in targets if room is not None]
@@ -552,9 +559,10 @@ def _veranda_rect(room, wall, segment, proj):
 
 # --- Livability helpers (strict Day-2 checks; 13-16 + G decide the verdict) ---
 
-# Hard-rule ids that decide the UNLIVABLE verdict: toilets (7) plus the
-# strict livability checks (13-16). Geometry G joins them (see verdict).
-LIVABILITY_IDS = ("7", "13", "14", "15", "16")
+# Hard-rule ids that decide the UNLIVABLE verdict: bedroom doors (5),
+# toilets (7), the strict livability checks (13-16), master size (19).
+# Geometry G joins them (see verdict).
+LIVABILITY_IDS = ("5", "7", "13", "14", "15", "16", "19")
 
 # Kitchen needs this much continuous exterior wall (ventilation opening
 # plus the veranda door share it). Architect to confirm the 6 ft bar:
@@ -578,8 +586,8 @@ NEIGHBOUR_FT = 0.5
 def livability_verdict(rules):
     """(livable, failed_ids) from finished rule rows.
 
-    UNLIVABLE iff any of rules 7, 13-16 FAIL, or the geometry row G
-    FAILS (rooms outside the plot are unbuildable, hence unlivable).
+    UNLIVABLE iff any of rules 5, 7, 13-16, 19 FAIL, or the geometry
+    row G FAILS (rooms outside the plot are unbuildable, hence unlivable).
     Rule 17 (cross-ventilation walls) is reported only and never flips
     the verdict.
     """
@@ -938,6 +946,7 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
         detail_18 = "no toilets"
     rules.append(_rule("18", "Toilet real sizes",
                        "FAIL" if bath_problems else "PASS", detail_18))
+    rules.append(_check_master_size(rects))
 
     # Design goals (soft): entry, outline, landscape, kitchen west.
     goals = []
@@ -1330,21 +1339,72 @@ def _check_bath_size(rect, rects):
     return problems
 
 
+def _master_bedroom(rects):
+    """The designated master: name says master, else Bedroom 1, else first."""
+    beds = [r for r in rects if r["type"] == "bedroom"]
+    if not beds:
+        return None
+    return sorted(beds, key=lambda r: ("master" not in r["name"].lower(),
+                                       r["name"]))[0]
+
+
+def _check_master_size(rects):
+    """Rule 19: master is the largest bedroom (+10%) with the top toilet."""
+    master = _master_bedroom(rects)
+    if master is None:
+        return _rule("19", "Master bedroom largest", "FAIL",
+                     "no bedrooms in plan")
+    problems, notes = [], []
+    master_area = master["w"] * master["d"]
+    for bed in rects:
+        if bed["type"] != "bedroom" or bed is master:
+            continue
+        other = bed["w"] * bed["d"]
+        if other <= 0:
+            continue
+        if master_area < 1.1 * other - 0.01:
+            problems.append("%s (%d sq ft) not 10%% over %s (%d sq ft)"
+                            % (master["name"], round(master_area),
+                               bed["name"], round(other)))
+    if not problems:
+        notes.append("%s largest (%d sq ft)"
+                     % (master["name"], round(master_area)))
+    attached = [r for r in rects if r["type"] == "bathroom"
+                and r["bathroom_kind"] == "attached"]
+    master_baths = [b["w"] * b["d"] for b in attached
+                    if b.get("attached_to", "") == master["name"]]
+    other_baths = [b["w"] * b["d"] for b in attached
+                   if b.get("attached_to", "") != master["name"]]
+    if master_baths and other_baths \
+            and max(master_baths) < max(other_baths) - 0.01:
+        problems.append("master toilet (%d sq ft) smaller than another "
+                        "attached toilet (%d sq ft)"
+                        % (round(max(master_baths)), round(max(other_baths))))
+    detail = "; ".join(problems + notes) if problems or notes \
+        else "single bedroom"
+    return _rule("19", "Master bedroom largest",
+                 "FAIL" if problems else "PASS", detail)
+
+
 def _score(rules, goals, quality):
     """One number per option: strict fails hurt most, bends cost a little.
 
-    Every FAIL costs 100 (rules 13-17 included: they rank options, while
-    only 13-16 flip the verdict). BEND rows cost 1, except rule 1, whose
-    relaxed rooms cost 2 each via quality. Goals and door facts break
-    ties; margins reward garden and punish overflow.
+    Every FAIL costs 100 (all rules rank options, while only 5, 7,
+    13-16, 19 and G flip the verdict). BEND rows cost 1, except rule 1,
+    whose relaxed rooms cost 2 each via quality. Goals, door facts and
+    wishes break ties (met +10, missed -15: a plan missing a clear wish
+    ranks lower); margins reward garden and punish overflow.
     """
     fails = sum(1 for r in rules if r["status"] == "FAIL")
     bends = sum(1 for r in rules
                 if r["status"] == "BEND" and r["id"] != "1")
     met = sum(1 for g in goals if g["status"] == "MET")
+    wishes_met = quality.get("wishes_met", 0)
+    wishes_missed = quality.get("wishes_total", wishes_met) - wishes_met
     return (-100 * fails - bends + 5 * met + 2 * quality["direct_doors"]
             + quality["windowed_beds"]
             - 2 * quality["relaxed_rooms"]
+            + 10 * wishes_met - 15 * wishes_missed
             + 0.05 * max(0.0, quality["back_margin"])
             + 0.5 * min(0.0, quality["back_margin"]))
 

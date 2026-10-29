@@ -198,7 +198,8 @@ if st.button("Generate room program"):
     tried = sum(opt["tried"] for opt in options)
     st.write(
         "Built %d option(s) (%d arrangements examined); scores rank them, "
-        "higher is better. UNLIVABLE means rules 13-16 or geometry G fail."
+        "higher is better. UNLIVABLE means rules 5, 7, 13-16, 19 or "
+        "geometry G fail."
         % (len(options), tried)
     )
     columns = st.columns(len(options))
@@ -235,6 +236,11 @@ if st.button("Generate room program"):
                  "Detail": row["detail"]}
                 for row in opt["goals"]
             ])
+            if opt["wishes"]:
+                st.table([
+                    {"Client wish": row["wish"], "Result": row["status"]}
+                    for row in opt["wishes"]
+                ])
             if opt["relaxed"]:
                 st.write("Relaxed sizes: %s." % ", ".join(opt["relaxed"]))
             for item in opt["notes"]:

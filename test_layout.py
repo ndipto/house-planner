@@ -18,7 +18,8 @@ from ai_program import (
     TOILET_W_RANGE,
 )
 from draw import svg_plan, svg_plot_preview
-from layout import RELAXED_RANGES, _check_all, livability_verdict
+from layout import (RELAXED_RANGES, _check_all, livability_verdict,
+                    shared_wall)
 from typology import build_options
 
 
@@ -207,6 +208,19 @@ def test_typology_options():
     assert by_label["B"]["livable"] is True, "B livable, mirrored"
     assert _rule_status(by_label["B"], "13") == "BEND", "B misses west"
     assert by_label["C"]["livable"] is True, "C livable, third variant"
+    for opt in options:
+        assert _rule_status(opt, "19") == "PASS", "master 10%+ biggest"
+        attached = [r for r in opt["placements"]
+                    if r["type"] == "bathroom"
+                    and r.get("bathroom_kind") == "attached"]
+        master_bath = [b for b in attached
+                       if b.get("attached_to") == "Bedroom 1"]
+        others = [b for b in attached
+                  if b.get("attached_to") != "Bedroom 1"]
+        for other in others:
+            assert master_bath[0]["w"] * master_bath[0]["d"] >= \
+                other["w"] * other["d"] - 0.01, \
+                "master keeps the largest attached toilet"
     print("PASS test_typology_options (A/B/C livable, B bends 13)")
 
 
@@ -223,6 +237,12 @@ def test_fit_wishes_45x55():
     by_label = {o["label"]: o for o in options}
     assert ("Kitchen", "Living Room") in by_label["A"]["open_plan"], \
         "A merges living + kitchen into one gathering space"
+    wishes_a = {w["wish"]: w["status"] for w in by_label["A"]["wishes"]}
+    assert wishes_a["Open plan: kitchen + living room"] == "MET"
+    assert wishes_a["Garden with the living room"] == "MET"
+    wishes_c = {w["wish"]: w["status"] for w in by_label["C"]["wishes"]}
+    assert wishes_c["Garden with the living room"] == "NOT MET", \
+        "C compares without the garden"
     assert [r["id"] for r in by_label["C"]["rules"]
             if r["status"] == "FAIL"] == [], "C has zero fails"
     garden = [r for r in by_label["A"]["placements"]
@@ -424,6 +444,8 @@ def test_road_east_facing_master():
             "option %s: master on the south side" % opt["label"]
         assert any("south side (client wish" in note
                    for note in opt["notes"]), "the wish is reported"
+        assert any(w["status"] == "MET" and "south-facing" in w["wish"]
+                   for w in opt["wishes"]), "south wish MET in the table"
     by_label = {o["label"]: o for o in options}
     assert _center_x(by_label["A"]["placements"], "Bedroom 2") > middle, \
         "A: second bedroom takes the other corner"
@@ -563,6 +585,62 @@ def test_angle_30_south_wish():
     print("PASS test_angle_30_south_wish (front-most + arrow)")
 
 
+WISHES_50 = ("open living and dining for family gathering. "
+             "south facing master bedroom.")
+
+
+def test_master_front_south_50x40():
+    """50x40 road South, north 0: front-corner south master, both wishes.
+
+    A/B put the master in a front corner (south MET, open plan MET);
+    C stays classic for comparison (both NOT MET, ranked lower). Every
+    option is livable with the master 10%+ biggest and every bedroom
+    door opening into family living (dining fallback allowed).
+    """
+    result = build_options(PROGRAM_2BED, 50, 40, "South", 2, WISHES_50, 0)
+    options = result["options"]
+    assert [o["label"] for o in options] == ["A", "B", "C"]
+    by_label = {o["label"]: o for o in options}
+    assert "master front" in by_label["A"]["title"]
+    assert "master front" in by_label["B"]["title"]
+    for opt in options:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "5") == "PENDING", "bedroom doors reach"
+        assert _rule_status(opt, "19") == "PASS", "master 10%+ biggest"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        beds = [r for r in opt["placements"] if r["type"] == "bedroom"]
+        master = max(beds, key=lambda r: r["w"] * r["d"])
+        assert master["name"] == "Bedroom 1", "Bedroom 1 is the master"
+        for bed in beds:
+            if bed["name"] != "Bedroom 1":
+                assert master["w"] * master["d"] >= \
+                    1.1 * bed["w"] * bed["d"] - 0.01, \
+                    "master 10%+ over %s" % bed["name"]
+        hubs = [r for r in opt["placements"]
+                if r["type"] in ("family living", "dining")]
+        for bed in beds:
+            touch = max(shared_wall(bed, hub) for hub in hubs)
+            assert touch >= 3 - 1e-6, \
+                "%s opens into family/dining" % bed["name"]
+        fam = max(shared_wall(master, r) for r in opt["placements"]
+                  if r["type"] == "family living")
+        assert fam >= 3 - 1e-6, "master opens into family living"
+    wishes = {label: {w["wish"]: w["status"]
+                      for w in by_label[label]["wishes"]}
+              for label in ("A", "B", "C")}
+    for label in ("A", "B"):
+        assert wishes[label]["Open plan: dining + living room"] == "MET"
+        assert wishes[label]["south-facing master bedroom"] == "MET"
+    assert wishes["C"]["Open plan: dining + living room"] == "NOT MET"
+    assert wishes["C"]["south-facing master bedroom"] == "NOT MET"
+    assert by_label["C"]["score"] < by_label["A"]["score"]
+    assert by_label["C"]["score"] < by_label["B"]["score"]
+    feet = [_footprint(o) for o in options]
+    assert feet[0] != feet[1] and feet[0] != feet[2] \
+        and feet[1] != feet[2], "options must differ"
+    print("PASS test_master_front_south_50x40 (front master, wishes MET x2)")
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
@@ -570,6 +648,7 @@ if __name__ == "__main__":
     test_impossible_plot()
     test_road_east_facing_master()
     test_front_facing_master()
+    test_master_front_south_50x40()
     test_wide_shallow_bands()
     test_preview_north_angles()
     test_angle_matches_cardinal()
