@@ -15,6 +15,7 @@ from typology import build_options
 def _svg_for_option(plot, option):
     """Render one typology option via svg_plan (adapts the plan shape)."""
     return svg_plan({"ok": True, "placements": option["placements"],
+                     "open_plan": option.get("open_plan", []),
                      "plot": {"w": plot["width"], "d": plot["depth"],
                               "road": plot["road"],
                               "north_angle": plot.get("north_angle", 0)}})
@@ -220,7 +221,7 @@ if st.button("Generate room program"):
                      % (", ".join(fails) if fails else "none",
                         ", ".join(bends) if bends else "none"))
 
-    # 7. Per-option detail (doors/windows arrive Day 3).
+    # 7. Per-option detail (plans show solid walls, doors, windows).
     for opt in options:
         with st.expander("Option %s details: %s"
                          % (opt["label"], opt["title"])):

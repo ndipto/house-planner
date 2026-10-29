@@ -40,6 +40,8 @@ from ai_program import (
     SETBACK_SIDE_FT,
     TOILET_D_RANGE,
 )
+from openings import ROOM_W_FT
+from openings import _shared_with as _wall_runs
 from layout import (
     BEDROOM_MIN_WINDOW_FT,
     EPS,
@@ -2228,12 +2230,74 @@ def _try_l_shape(buckets, build_w, build_d, notes, directives):
     return None
 
 
+def _door_bearing_nudge(rects, build_w, build_d, notes):
+    """Slide the kitchen along the dining wall to a 3 ft door bearing.
+
+    Strip stacking sometimes lands the kitchen on dining with only 1-2
+    ft of shared wall, which cannot take the 3 ft kitchen door. Sliding
+    the kitchen (with its verandas) along the wall by the deficit keeps
+    every size and adjacency; the move is re-verified (inside
+    buildable, no overlaps, bearing reached) and reverted otherwise.
+    """
+    kitchens = [r for r in rects if r["type"] == "kitchen"]
+    dinings = [r for r in rects if r["type"] == "dining"]
+    if not kitchens or not dinings:
+        return
+    kitchen, dining = kitchens[0], dinings[0]
+    runs = _wall_runs(kitchen, dining)
+    if not runs or len({run[0] for run in runs}) > 1:
+        return
+    overlap = sum(run[2] - run[1] for run in runs)
+    if overlap < EPS or overlap >= ROOM_W_FT - EPS:
+        return
+    side = runs[0][0]
+    if side in ("E", "W"):
+        delta = ROOM_W_FT - overlap
+        shift = (0.0, delta if kitchen["y"] + kitchen["d"] / 2.0
+                 < dining["y"] + dining["d"] / 2.0 else -delta)
+    else:
+        delta = ROOM_W_FT - overlap
+        shift = (delta if kitchen["x"] + kitchen["w"] / 2.0
+                 < dining["x"] + dining["w"] / 2.0 else -delta, 0.0)
+    movers = [kitchen] + [r for r in rects
+                           if r.get("veranda_for") == kitchen["name"]]
+    for rect in movers:
+        rect["x"] += shift[0]
+        rect["y"] += shift[1]
+    ok = True
+    for rect in movers:
+        if rect["x"] < -0.01 or rect["y"] < -0.01 \
+                or rect["x"] + rect["w"] > build_w + 0.01 \
+                or rect["y"] + rect["d"] > build_d + 0.01:
+            ok = False
+    if ok:
+        for rect in movers:
+            for other in rects:
+                if other in movers:
+                    continue
+                if _area_overlap(rect, other) > 0.01:
+                    ok = False
+    if ok:
+        bearing = sum(run[2] - run[1]
+                      for run in _wall_runs(kitchen, dining))
+        ok = bearing >= ROOM_W_FT - EPS
+    if ok:
+        notes.append("Kitchen nudged %.1f ft for a 3 ft door bearing on "
+                     "dining." % max(abs(shift[0]), abs(shift[1])))
+    else:
+        for rect in movers:
+            rect["x"] -= shift[0]
+            rect["y"] -= shift[1]
+
+
 def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
                    num_toilets, notes, buckets, directives,
                    north_angle=None):
     """Check, score and shift one option to plot-local coordinates."""
+    _door_bearing_nudge(rects, build_w, build_d, notes)
     rules, goals, quality = _check_all(rects, info, build_w, build_d, road,
-                                       num_toilets, north_angle)
+                                       num_toilets, north_angle,
+                                       meta.get("open_plan", []))
     wish_rows, met, total = _wishes_table(rects, meta, buckets, directives,
                                           road, north_angle)
     quality["wishes_met"] = met

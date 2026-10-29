@@ -20,6 +20,7 @@ from ai_program import (
 from draw import svg_plan, svg_plot_preview
 from layout import (RELAXED_RANGES, _check_all, livability_verdict,
                     shared_wall)
+from openings import audit_gaps, place_openings, wall_segments
 from typology import build_options
 
 
@@ -151,6 +152,7 @@ def _rule_status(option, rule_id):
 def _svg_for(option, plot):
     """Adapt one option to the svg_plan() plan shape (mirrors the app)."""
     return {"ok": True, "placements": option["placements"],
+            "open_plan": option.get("open_plan", []),
             "plot": {"w": plot["width"], "d": plot["depth"],
                      "road": plot["road"],
                      "north_angle": plot.get("north_angle", 0)}}
@@ -483,8 +485,11 @@ def test_wide_shallow_bands():
     assert _rule_status(by_label["A"], "13") == "PASS", \
         "A: kitchen west corner + veranda"
     assert _rule_status(by_label["B"], "13") == "BEND", "B misses west"
+    # Day 3 (real doors): the band kitchen sits at the far end, away from
+    # dining, and the 3 ft corner store cannot take a 3 ft door - both
+    # honestly reported (non-verdict rules; C stays LIVABLE).
     assert [r["id"] for r in by_label["C"]["rules"]
-            if r["status"] == "FAIL"] == [], "C has zero fails"
+            if r["status"] == "FAIL"] == ["4", "12"], "C misses 4 + 12"
     feet = [_footprint(o) for o in options]
     assert feet[0] != feet[1] and feet[0] != feet[2] \
         and feet[1] != feet[2], "options must differ"
@@ -605,7 +610,7 @@ def test_master_front_south_50x40():
     assert "master front" in by_label["B"]["title"]
     for opt in options:
         assert opt["livable"] is True, "option %s livable" % opt["label"]
-        assert _rule_status(opt, "5") == "PENDING", "bedroom doors reach"
+        assert _rule_status(opt, "5") == "PASS", "bedroom doors reach"
         assert _rule_status(opt, "19") == "PASS", "master 10%+ biggest"
         _assert_clean(opt, result["buildable"], result["plot"])
         beds = [r for r in opt["placements"] if r["type"] == "bedroom"]
@@ -759,9 +764,160 @@ def test_t6_50x70_west_4bed_elderly():
             == "MET", "garden placed"
         assert opt["livable"] == (opt["livability_fails"] == []), \
             "verdict matches hard fails on %s" % opt["label"]
+        # Day 3 honesty: the stranded bedroom and the kitchen (no
+        # dining wall) miss their doors too; both flip to PASS with
+        # the typology fix, together with the verdict.
+        assert _rule_status(opt, "4") == "FAIL", "kitchen doorless"
+        assert _rule_status(opt, "12") == "FAIL", "doors incomplete"
         _assert_clean(opt, result["buildable"], result["plot"])
     print("PASS test_t6_50x70_west_4bed_elderly (wishes MET, "
           "verdict honest)")
+
+
+def _doors_by_kind(doors):
+    kinds = {}
+    for door in doors:
+        kinds.setdefault(door["kind"], []).append(door)
+    return kinds
+
+
+def test_no_pending_rules():
+    """Day 3: no rule stays PENDING on any review-brief option."""
+    briefs = [
+        (PROGRAM_3BED, 40, 60, "North", 3, ""),
+        (PROGRAM_2BED, 45, 55, "South", 2,
+         "combined living and kitchen for family gathering, "
+         "small garden beside the living room"),
+        (PROGRAM_2BED, 40, 60, "East", 2,
+         "south facing master bedroom, nice living room"),
+        (PROGRAM_2BED, 50, 40, "South", 2,
+         "open living and dining for family gathering. "
+         "south facing master bedroom"),
+        (_program_4bed(), 50, 70, "West", 3,
+         "garden, elderly parents need a bedroom near family living"),
+        (PROGRAM_1BED, 40, 60, "North", 1, ""),
+        (PROGRAM_2BED, 60, 40, "South", 2, ""),
+    ]
+    count = 0
+    for program, fw, fd, road, ntoilets, wishes in briefs:
+        result = build_options(program, fw, fd, road, ntoilets, wishes)
+        for opt in result["options"]:
+            count += 1
+            pending = [r["id"] for r in opt["rules"]
+                       if r["status"] == "PENDING"]
+            assert pending == [], "option %s still PENDING: %s" \
+                % (opt["label"], pending)
+    assert count > 15, "the sweep must cover real options"
+    print("PASS test_no_pending_rules (%d options, zero PENDING)" % count)
+
+
+def test_doors_windows_placed():
+    """Day 3: T1-A carries the full door/window table, gaps clean."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    opt = {o["label"]: o for o in result["options"]}["A"]
+    assert opt["livable"] is True
+    placed = place_openings(opt["placements"], opt["open_plan"], 0.0)
+    doors, windows = placed["doors"], placed["windows"]
+    assert placed["problems"] == [], "all required doors placed"
+    assert audit_gaps(opt["placements"], doors, windows) == [], \
+        "corners cleared, no clashes"
+    kinds = _doors_by_kind(doors)
+    entry = kinds.get("entry", [])
+    assert len(entry) == 1 and entry[0]["width"] == 3.5, "entry 3'-6\""
+    assert {entry[0]["room"], entry[0]["into"]} == {"Porch", "Foyer"}
+    by_name = {r["name"]: r for r in opt["placements"]}
+    for bed in ("Bedroom 1", "Bedroom 2", "Bedroom 3"):
+        hits = [d for d in doors if d["room"] == bed]
+        assert len(hits) == 1, "%s has one own door" % bed
+        other = hits[0]["into"] if hits[0]["room"] == bed \
+            else hits[0]["room"]
+        assert by_name[other]["type"] in ("family living", "dining"), \
+            "%s opens off the hub" % bed
+        assert hits[0]["width"] == 3.0
+    assert any("Kitchen" in (d["room"], d["into"])
+               and "Dining" in (d["room"], d["into"]) for d in doors), \
+        "kitchen door into dining"
+    for bath, host in (("Bath 1", "Bedroom 1"), ("Bath 2", "Bedroom 2")):
+        hits = [d for d in doors if bath in (d["room"], d["into"])]
+        assert len(hits) == 1 and hits[0]["width"] == 2.5, \
+            "%s toilet door 2'-6\"" % bath
+        other = hits[0]["into"] if hits[0]["room"] == bath \
+            else hits[0]["room"]
+        assert other == host, "%s opens only into %s" % (bath, host)
+    verandas = [r for r in opt["placements"] if r["type"] == "veranda"]
+    assert verandas, "T1-A has verandas"
+    for veranda in verandas:
+        hits = [d for d in doors if veranda["name"] in (d["room"],
+                                                        d["into"])]
+        assert len(hits) == 1, "%s has one door" % veranda["name"]
+    for bed in ("Bedroom 1", "Bedroom 2", "Bedroom 3"):
+        assert any(w["room"] == bed for w in windows), \
+            "%s windowed" % bed
+    for bath in ("Bath 1", "Bath 2", "Common Toilet"):
+        sides = [w["wall"] for w in windows if w["room"] == bath]
+        assert sides, "%s windowed" % bath
+        assert "S" not in sides, "%s window never road-side" % bath
+    print("PASS test_doors_windows_placed (%d doors, %d windows)"
+          % (len(doors), len(windows)))
+
+
+def test_door_bearing_nudge():
+    """Day 3: the 1-bed kitchen slides to a 3 ft dining bearing."""
+    result = build_options(PROGRAM_1BED, 40, 60, "North", 1)
+    by_label = {o["label"]: o for o in result["options"]}
+    for label in ("A", "B"):
+        opt = by_label[label]
+        names = {r["name"]: r for r in opt["placements"]}
+        bearing = shared_wall(names["Kitchen"], names["Dining"])
+        assert bearing >= 3.0 - 0.01, \
+            "%s kitchen bears %.1f ft on dining" % (label, bearing)
+        assert _rule_status(opt, "4") == "PASS", "kitchen door fits"
+    assert any("nudged" in note for opt in result["options"]
+               for note in opt["notes"]), "the nudge is reported"
+    print("PASS test_door_bearing_nudge (1-bed A/B bear 3 ft)")
+
+
+def test_svg_walls_doors_windows():
+    """Day 3: the SVG draws solid walls, door arcs and window lines;
+    open-plan pairs share no wall band."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    opt = {o["label"]: o for o in result["options"]}["A"]
+    placed = place_openings(opt["placements"], opt["open_plan"], 0.0)
+    svg = svg_plan(_svg_for(opt, result["plot"]))
+    ET.fromstring(svg)
+    assert svg.count('fill="#000"') > 20, "solid wall bands drawn"
+    assert svg.count("<path d=\"M") == len(placed["doors"]), \
+        "one swing arc per door"
+    assert "stroke-width=\"1\"" in svg, "window/leaf thin lines drawn"
+    open_result = build_options(
+        PROGRAM_2BED, 50, 40, "South", 2,
+        "open living and dining for family gathering. "
+        "south facing master bedroom")
+    open_opt = {o["label"]: o for o in open_result["options"]}["A"]
+    assert ("Dining", "Living Room") in open_opt["open_plan"] \
+        or ["Dining", "Living Room"] in open_opt["open_plan"], \
+        "A merges dining + living"
+    names = {r["name"]: r for r in open_opt["placements"]}
+    living, dining = names["Living Room"], names["Dining"]
+    lo = max(living["x"], dining["x"])
+    hi = min(living["x"] + living["w"], dining["x"] + dining["w"])
+    if abs(living["x"] + living["w"] - dining["x"]) < 0.02:
+        seam = (dining["x"], living["y"] + living["d"] / 2)
+    elif abs(dining["x"] + dining["w"] - living["x"]) < 0.02:
+        seam = (living["x"], living["y"] + living["d"] / 2)
+    else:
+        seam = ((lo + hi) / 2, dining["y"])
+    # The open pair shares no wall band across its seam (checked before
+    # gaps are cut), and dropping the pair restores wall bands there.
+    segs = wall_segments(open_opt["placements"], [], [],
+                         open_opt["open_plan"])
+    for seg in segs:
+        assert not (seg["x0"] < seam[0] < seg["x1"]
+                    and seg["y0"] < seam[1] < seg["y1"]), \
+            "no wall band crosses the open seam"
+    closed = wall_segments(open_opt["placements"], [], [], [])
+    assert len(closed) > len(segs), "the open wall is really omitted"
+    print("PASS test_svg_walls_doors_windows")
 
 
 if __name__ == "__main__":
@@ -787,4 +943,8 @@ if __name__ == "__main__":
     test_t4_50x40_south_open_south_master()
     test_t5_30x50_north_narrow()
     test_t6_50x70_west_4bed_elderly()
+    test_no_pending_rules()
+    test_doors_windows_placed()
+    test_door_bearing_nudge()
+    test_svg_walls_doors_windows()
     print("ALL LAYOUT TESTS PASSED")

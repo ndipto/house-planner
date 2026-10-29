@@ -32,6 +32,7 @@ BRIEFS = [
 def _svg_for_option(plot, option):
     """Render one option exactly like the app does."""
     return svg_plan({"ok": True, "placements": option["placements"],
+                     "open_plan": option.get("open_plan", []),
                      "plot": {"w": plot["width"], "d": plot["depth"],
                               "road": plot["road"],
                               "north_angle": plot.get("north_angle", 0)}})

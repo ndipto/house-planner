@@ -3,8 +3,12 @@
 #
 # What this file does: turns placed room rectangles into a clean, dimensioned
 # 2D plan in SVG format: plot boundary, dashed setback line, rooms with names,
-# sizes (feet-inches) and areas, overall dimensions, north arrow, road label,
-# scale bar, and a concept-only note. Black lines on white, no bright colors.
+# sizes (feet-inches) and areas, solid walls (10 in exterior, 5 in
+# interior), doors (wall gap + leaf + swing arc), windows (wall gap +
+# double lines), overall dimensions, north arrow, road label, scale bar,
+# and a concept-only note. Black lines on white, no bright colors.
+# Open-plan pairs share no wall (one open space). The gaps drawn are the
+# same ones openings.py places and layout.py checks.
 #
 # Orientation: the drawing is rotated so the road lands on its real side
 # (closest cardinal for angled plots):
@@ -27,6 +31,7 @@ from ai_program import (
     format_ft_in,
 )
 from layout import SHORT_NAMES
+from openings import UNWALLED_TYPES, place_openings, wall_segments
 
 
 def svg_plan(result):
@@ -111,9 +116,20 @@ def svg_plan(result):
     # Road edge (extra-thick black line) + ROAD label outside it.
     parts.append(_road_edge(point, plot_w, plot_d, road, scale))
 
-    # Rooms: white fill, black outline, name + size + area.
+    # Rooms: white fill, name + size + area (walled rooms lose their
+    # outline; the solid wall bands drawn next replace it).
     for room in rooms:
         parts.append(_room_group(room, point, scale))
+    placed = place_openings(rooms, result.get("open_plan", []), angle)
+    for segment in wall_segments(rooms, placed["doors"],
+                                 placed["windows"],
+                                 result.get("open_plan", [])):
+        parts.append(_wall_band(segment, point))
+    by_name = {r.get("name", ""): r for r in rooms}
+    for door in placed["doors"]:
+        parts.append(_door_symbol(door, by_name, point, scale))
+    for win in placed["windows"]:
+        parts.append(_window_symbol(win, point, scale))
     if not rooms:
         cx = left + draw_w * scale / 2
         cy = top + draw_d * scale / 2
@@ -210,9 +226,15 @@ def _room_group(room, point, scale):
         area = ""
     cx = x + width / 2
     dash = ' stroke-dasharray="7 4"' if room.get("type") == "garden" else ""
-    out = ['<g><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
-           'fill="#fff" stroke="#000" stroke-width="1.6"%s/>'
-           % (x, y, width, height, dash)]
+    if str(room.get("type", "")) in UNWALLED_TYPES:
+        box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+               'fill="#fff" stroke="#000" stroke-width="1.6"%s/>'
+               % (x, y, width, height, dash))
+    else:  # solid wall bands outline walled rooms; no stroke here
+        box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+               'fill="#fff" stroke="none"/>'
+               % (x, y, width, height))
+    out = ['<g>' + box]
     if height < 24:
         out.append('<text x="%.1f" y="%.1f" font-size="9" text-anchor="middle">%s'
                    "</text>" % (cx, y + height / 2 + 3, escape(label)))
@@ -237,6 +259,66 @@ def _room_group(room, point, scale):
                        % (cx, y + height / 2 + 23, escape(area)))
     out.append("</g>")
     return "".join(out)
+
+
+def _wall_band(segment, point):
+    """One solid wall band: filled black rect between mapped corners."""
+    ax, ay = point(segment["x0"], segment["y0"])
+    bx, by = point(segment["x1"], segment["y1"])
+    return ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+            'fill="#000" stroke="none"/>'
+            % (min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)))
+
+
+def _door_symbol(door, by_name, point, scale):
+    """Door leaf (open 90 deg) + swing arc across the wall gap."""
+    hx, hy = point(door["x0"], door["y0"])  # hinge at the gap start
+    ex, ey = point(door["x1"], door["y1"])  # gap end
+    swing = by_name.get(door.get("swing", ""), {})
+    try:
+        cx = float(swing["x"]) + float(swing["w"]) / 2.0
+        cy = float(swing["y"]) + float(swing["d"]) / 2.0
+    except (TypeError, ValueError, KeyError):
+        cx, cy = door["x0"], door["y0"]
+    scx, scy = point(cx, cy)
+    dx, dy = ex - hx, ey - hy
+    gap = math.hypot(dx, dy)
+    if gap < 0.01:
+        return ""
+    nx, ny = -dy / gap, dx / gap  # wall normal, flipped into the room
+    if nx * (scx - hx) + ny * (scy - hy) < 0:
+        nx, ny = -nx, -ny
+    radius = float(door["width"]) * scale
+    lx, ly = hx + nx * radius, hy + ny * radius  # leaf end
+    start = math.degrees(math.atan2(ly - hy, lx - hx))
+    end = math.degrees(math.atan2(ey - hy, ex - hx))
+    delta = (end - start) % 360.0
+    if delta > 180.0:
+        delta -= 360.0
+    sweep = 1 if delta > 0 else 0
+    return ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#000" '
+            'stroke-width="1.4"/>'
+            '<path d="M %.1f %.1f A %.1f %.1f 0 0 %d %.1f %.1f" '
+            'fill="none" stroke="#000" stroke-width="1"/>'
+            % (hx, hy, lx, ly, lx, ly, radius, radius, sweep, ex, ey))
+
+
+def _window_symbol(win, point, scale):
+    """Window: two thin lines across the wall gap, 3 in apart."""
+    ax, ay = point(win["x0"], win["y0"])
+    bx, by = point(win["x1"], win["y1"])
+    dx, dy = bx - ax, by - ay
+    gap = math.hypot(dx, dy)
+    if gap < 0.01:
+        return ""
+    off = 0.125 * scale  # 1.5 in each side of the wall centerline
+    nx, ny = -dy / gap * off, dx / gap * off
+    return ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#000" '
+            'stroke-width="1"/>'
+            '<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#000" '
+            'stroke-width="1"/>'
+            % (ax + nx, ay + ny, bx + nx, by + ny,
+               ax - nx, ay - ny, bx - nx, by - ny))
 
 
 def _road_edge(point, plot_w, plot_d, road, scale):

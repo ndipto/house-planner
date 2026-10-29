@@ -5,21 +5,140 @@
 <rect x="110.0" y="224.0" width="740.0" height="1000.0" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="7 4"/>
 <text x="114.0" y="238.0" font-size="10">setback line</text>
 <line x1="80.0" y1="104.0" x2="880.0" y2="104.0" stroke="#000" stroke-width="6"/><text x="480.0" y="74.0" font-size="13" font-weight="bold" text-anchor="middle">ROAD</text>
-<g><rect x="360.0" y="324.0" width="240.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="480.0" y="376.0" font-size="12" font-weight="bold" text-anchor="middle">Foyer</text><text x="480.0" y="392.0" font-size="10" text-anchor="middle">12'-0" x 6'-0"</text><text x="480.0" y="407.0" font-size="10" text-anchor="middle">72 sq ft</text></g>
-<g><rect x="360.0" y="444.0" width="240.0" height="260.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="480.0" y="566.0" font-size="12" font-weight="bold" text-anchor="middle">Living Room</text><text x="480.0" y="582.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="597.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
-<g><rect x="360.0" y="704.0" width="240.0" height="260.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="480.0" y="826.0" font-size="12" font-weight="bold" text-anchor="middle">Dining</text><text x="480.0" y="842.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="857.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
-<g><rect x="360.0" y="964.0" width="240.0" height="260.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="480.0" y="1086.0" font-size="12" font-weight="bold" text-anchor="middle">Family Living</text><text x="480.0" y="1102.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="1117.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
-<g><rect x="160.0" y="1004.0" width="200.0" height="220.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="260.0" y="1106.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 2</text><text x="260.0" y="1122.0" font-size="10" text-anchor="middle">10'-0" x 11'-0"</text><text x="260.0" y="1137.0" font-size="10" text-anchor="middle">110 sq ft</text></g>
-<g><rect x="160.0" y="884.0" width="100.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="210.0" y="936.0" font-size="12" font-weight="bold" text-anchor="middle">Bath 2</text><text x="210.0" y="952.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="210.0" y="967.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
-<g><rect x="260.0" y="884.0" width="100.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="310.0" y="936.0" font-size="12" font-weight="bold" text-anchor="middle">Wardrobe</text><text x="310.0" y="952.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="310.0" y="967.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
-<g><rect x="260.0" y="764.0" width="100.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="310.0" y="816.0" font-size="12" font-weight="bold" text-anchor="middle">Common Toilet</text><text x="310.0" y="832.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="310.0" y="847.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
-<g><rect x="160.0" y="494.0" width="200.0" height="270.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="260.0" y="621.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 3</text><text x="260.0" y="637.0" font-size="10" text-anchor="middle">10'-0" x 13'-6"</text><text x="260.0" y="652.0" font-size="10" text-anchor="middle">135 sq ft</text></g>
-<g><rect x="600.0" y="924.0" width="200.0" height="300.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="700.0" y="1066.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 1</text><text x="700.0" y="1082.0" font-size="10" text-anchor="middle">10'-0" x 15'-0"</text><text x="700.0" y="1097.0" font-size="10" text-anchor="middle">150 sq ft</text></g>
-<g><rect x="700.0" y="804.0" width="100.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="750.0" y="856.0" font-size="12" font-weight="bold" text-anchor="middle">Bath 1</text><text x="750.0" y="872.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="750.0" y="887.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
-<g><rect x="600.0" y="804.0" width="100.0" height="120.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="650.0" y="856.0" font-size="10" font-weight="bold" text-anchor="middle">Store (Bath 1)</text><text x="650.0" y="872.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="650.0" y="887.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
-<g><rect x="600.0" y="504.0" width="200.0" height="300.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="700.0" y="646.0" font-size="12" font-weight="bold" text-anchor="middle">Kitchen</text><text x="700.0" y="662.0" font-size="10" text-anchor="middle">10'-0" x 15'-0"</text><text x="700.0" y="677.0" font-size="10" text-anchor="middle">150 sq ft</text></g>
+<g><rect x="360.0" y="324.0" width="240.0" height="120.0" fill="#fff" stroke="none"/><text x="480.0" y="376.0" font-size="12" font-weight="bold" text-anchor="middle">Foyer</text><text x="480.0" y="392.0" font-size="10" text-anchor="middle">12'-0" x 6'-0"</text><text x="480.0" y="407.0" font-size="10" text-anchor="middle">72 sq ft</text></g>
+<g><rect x="360.0" y="444.0" width="240.0" height="260.0" fill="#fff" stroke="none"/><text x="480.0" y="566.0" font-size="12" font-weight="bold" text-anchor="middle">Living Room</text><text x="480.0" y="582.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="597.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
+<g><rect x="360.0" y="704.0" width="240.0" height="260.0" fill="#fff" stroke="none"/><text x="480.0" y="826.0" font-size="12" font-weight="bold" text-anchor="middle">Dining</text><text x="480.0" y="842.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="857.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
+<g><rect x="360.0" y="964.0" width="240.0" height="260.0" fill="#fff" stroke="none"/><text x="480.0" y="1086.0" font-size="12" font-weight="bold" text-anchor="middle">Family Living</text><text x="480.0" y="1102.0" font-size="10" text-anchor="middle">12'-0" x 13'-0"</text><text x="480.0" y="1117.0" font-size="10" text-anchor="middle">156 sq ft</text></g>
+<g><rect x="160.0" y="1004.0" width="200.0" height="220.0" fill="#fff" stroke="none"/><text x="260.0" y="1106.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 2</text><text x="260.0" y="1122.0" font-size="10" text-anchor="middle">10'-0" x 11'-0"</text><text x="260.0" y="1137.0" font-size="10" text-anchor="middle">110 sq ft</text></g>
+<g><rect x="160.0" y="884.0" width="100.0" height="120.0" fill="#fff" stroke="none"/><text x="210.0" y="936.0" font-size="12" font-weight="bold" text-anchor="middle">Bath 2</text><text x="210.0" y="952.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="210.0" y="967.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
+<g><rect x="260.0" y="884.0" width="100.0" height="120.0" fill="#fff" stroke="none"/><text x="310.0" y="936.0" font-size="12" font-weight="bold" text-anchor="middle">Wardrobe</text><text x="310.0" y="952.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="310.0" y="967.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
+<g><rect x="260.0" y="764.0" width="100.0" height="120.0" fill="#fff" stroke="none"/><text x="310.0" y="816.0" font-size="12" font-weight="bold" text-anchor="middle">Common Toilet</text><text x="310.0" y="832.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="310.0" y="847.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
+<g><rect x="160.0" y="494.0" width="200.0" height="270.0" fill="#fff" stroke="none"/><text x="260.0" y="621.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 3</text><text x="260.0" y="637.0" font-size="10" text-anchor="middle">10'-0" x 13'-6"</text><text x="260.0" y="652.0" font-size="10" text-anchor="middle">135 sq ft</text></g>
+<g><rect x="600.0" y="924.0" width="200.0" height="300.0" fill="#fff" stroke="none"/><text x="700.0" y="1066.0" font-size="12" font-weight="bold" text-anchor="middle">Bedroom 1</text><text x="700.0" y="1082.0" font-size="10" text-anchor="middle">10'-0" x 15'-0"</text><text x="700.0" y="1097.0" font-size="10" text-anchor="middle">150 sq ft</text></g>
+<g><rect x="700.0" y="804.0" width="100.0" height="120.0" fill="#fff" stroke="none"/><text x="750.0" y="856.0" font-size="12" font-weight="bold" text-anchor="middle">Bath 1</text><text x="750.0" y="872.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="750.0" y="887.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
+<g><rect x="600.0" y="804.0" width="100.0" height="120.0" fill="#fff" stroke="none"/><text x="650.0" y="856.0" font-size="10" font-weight="bold" text-anchor="middle">Store (Bath 1)</text><text x="650.0" y="872.0" font-size="10" text-anchor="middle">5'-0" x 6'-0"</text><text x="650.0" y="887.0" font-size="10" text-anchor="middle">30 sq ft</text></g>
+<g><rect x="600.0" y="504.0" width="200.0" height="300.0" fill="#fff" stroke="none"/><text x="700.0" y="646.0" font-size="12" font-weight="bold" text-anchor="middle">Kitchen</text><text x="700.0" y="662.0" font-size="10" text-anchor="middle">10'-0" x 15'-0"</text><text x="700.0" y="677.0" font-size="10" text-anchor="middle">150 sq ft</text></g>
 <g><rect x="400.0" y="224.0" width="160.0" height="100.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="480.0" y="266.0" font-size="10" font-weight="bold" text-anchor="middle">Porch</text><text x="480.0" y="282.0" font-size="10" text-anchor="middle">8'-0" x 5'-0"</text><text x="480.0" y="297.0" font-size="10" text-anchor="middle">40 sq ft</text></g>
 <g><rect x="600.0" y="424.0" width="160.0" height="80.0" fill="#fff" stroke="#000" stroke-width="1.6"/><text x="680.0" y="456.0" font-size="10" font-weight="bold" text-anchor="middle">Kitchen veranda</text><text x="680.0" y="472.0" font-size="10" text-anchor="middle">8'-0" x 4'-0"</text><text x="680.0" y="487.0" font-size="10" text-anchor="middle">32 sq ft</text></g>
+<rect x="360.0" y="439.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="439.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="360.0" y="315.7" width="85.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="515.0" y="315.7" width="85.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="591.7" y="324.0" width="16.7" height="120.0" fill="#000" stroke="none"/>
+<rect x="351.7" y="324.0" width="16.7" height="120.0" fill="#000" stroke="none"/>
+<rect x="360.0" y="699.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="699.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="360.0" y="439.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="439.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="591.7" y="444.0" width="16.7" height="60.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="504.0" width="8.3" height="200.0" fill="#000" stroke="none"/>
+<rect x="351.7" y="444.0" width="16.7" height="50.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="494.0" width="8.3" height="210.0" fill="#000" stroke="none"/>
+<rect x="360.0" y="959.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="959.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="360.0" y="699.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="699.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="595.8" y="924.0" width="8.3" height="40.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="804.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="704.0" width="8.3" height="20.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="784.0" width="8.3" height="20.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="884.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="764.0" width="8.3" height="35.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="849.0" width="8.3" height="35.0" fill="#000" stroke="none"/>
+<rect x="360.0" y="1215.7" width="80.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="520.0" y="1215.7" width="80.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="360.0" y="959.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="510.0" y="959.8" width="90.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="595.8" y="964.0" width="8.3" height="100.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="1124.0" width="8.3" height="100.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="1004.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="1144.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="964.0" width="8.3" height="40.0" fill="#000" stroke="none"/>
+<rect x="160.0" y="1215.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="300.0" y="1215.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="160.0" y="999.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="235.0" y="999.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="260.0" y="999.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="355.8" y="1004.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="1144.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="151.7" y="1004.0" width="16.7" height="70.0" fill="#000" stroke="none"/>
+<rect x="151.7" y="1154.0" width="16.7" height="70.0" fill="#000" stroke="none"/>
+<rect x="160.0" y="999.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="235.0" y="999.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="160.0" y="875.7" width="100.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="255.8" y="884.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="151.7" y="884.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="151.7" y="964.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="260.0" y="999.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="260.0" y="879.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="355.8" y="884.0" width="8.3" height="80.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="964.0" width="8.3" height="40.0" fill="#000" stroke="none"/>
+<rect x="255.8" y="884.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="260.0" y="879.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="260.0" y="759.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="355.8" y="764.0" width="8.3" height="35.0" fill="#000" stroke="none"/>
+<rect x="355.8" y="849.0" width="8.3" height="35.0" fill="#000" stroke="none"/>
+<rect x="251.7" y="764.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="251.7" y="844.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="160.0" y="755.7" width="10.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="250.0" y="755.7" width="10.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="260.0" y="759.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="160.0" y="485.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="300.0" y="485.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="355.8" y="494.0" width="8.3" height="210.0" fill="#000" stroke="none"/>
+<rect x="151.7" y="494.0" width="16.7" height="270.0" fill="#000" stroke="none"/>
+<rect x="600.0" y="1215.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="740.0" y="1215.7" width="60.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="700.0" y="919.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="775.0" y="919.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="600.0" y="919.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="791.7" y="924.0" width="16.7" height="110.0" fill="#000" stroke="none"/>
+<rect x="791.7" y="1114.0" width="16.7" height="110.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="924.0" width="8.3" height="40.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="964.0" width="8.3" height="100.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="1124.0" width="8.3" height="100.0" fill="#000" stroke="none"/>
+<rect x="700.0" y="919.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="775.0" y="919.8" width="25.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="700.0" y="799.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="791.7" y="804.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="791.7" y="884.0" width="16.7" height="40.0" fill="#000" stroke="none"/>
+<rect x="695.8" y="804.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="600.0" y="919.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="600.0" y="799.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="695.8" y="804.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="804.0" width="8.3" height="120.0" fill="#000" stroke="none"/>
+<rect x="700.0" y="799.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="600.0" y="799.8" width="100.0" height="8.3" fill="#000" stroke="none"/>
+<rect x="600.0" y="495.7" width="6.7" height="16.7" fill="#000" stroke="none"/>
+<rect x="656.7" y="495.7" width="13.3" height="16.7" fill="#000" stroke="none"/>
+<rect x="730.0" y="495.7" width="70.0" height="16.7" fill="#000" stroke="none"/>
+<rect x="791.7" y="504.0" width="16.7" height="300.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="504.0" width="8.3" height="200.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="704.0" width="8.3" height="20.0" fill="#000" stroke="none"/>
+<rect x="595.8" y="784.0" width="8.3" height="20.0" fill="#000" stroke="none"/>
+<line x1="445.0" y1="324.0" x2="445.0" y2="394.0" stroke="#000" stroke-width="1.4"/><path d="M 445.0 394.0 A 70.0 70.0 0 0 0 515.0 324.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="450.0" y1="444.0" x2="450.0" y2="504.0" stroke="#000" stroke-width="1.4"/><path d="M 450.0 504.0 A 60.0 60.0 0 0 0 510.0 444.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="450.0" y1="704.0" x2="450.0" y2="764.0" stroke="#000" stroke-width="1.4"/><path d="M 450.0 764.0 A 60.0 60.0 0 0 0 510.0 704.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="450.0" y1="964.0" x2="450.0" y2="1024.0" stroke="#000" stroke-width="1.4"/><path d="M 450.0 1024.0 A 60.0 60.0 0 0 0 510.0 964.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="360.0" y1="1084.0" x2="300.0" y2="1084.0" stroke="#000" stroke-width="1.4"/><path d="M 300.0 1084.0 A 60.0 60.0 0 0 0 360.0 1144.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="360.0" y1="704.0" x2="300.0" y2="704.0" stroke="#000" stroke-width="1.4"/><path d="M 300.0 704.0 A 60.0 60.0 0 0 0 360.0 764.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="600.0" y1="1064.0" x2="660.0" y2="1064.0" stroke="#000" stroke-width="1.4"/><path d="M 660.0 1064.0 A 60.0 60.0 0 0 1 600.0 1124.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="600.0" y1="724.0" x2="660.0" y2="724.0" stroke="#000" stroke-width="1.4"/><path d="M 660.0 724.0 A 60.0 60.0 0 0 1 600.0 784.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="606.7" y1="504.0" x2="606.7" y2="554.0" stroke="#000" stroke-width="1.4"/><path d="M 606.7 554.0 A 50.0 50.0 0 0 0 656.7 504.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="185.0" y1="1004.0" x2="185.0" y2="954.0" stroke="#000" stroke-width="1.4"/><path d="M 185.0 954.0 A 50.0 50.0 0 0 1 235.0 1004.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="360.0" y1="799.0" x2="310.0" y2="799.0" stroke="#000" stroke-width="1.4"/><path d="M 310.0 799.0 A 50.0 50.0 0 0 0 360.0 849.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="725.0" y1="924.0" x2="725.0" y2="874.0" stroke="#000" stroke-width="1.4"/><path d="M 725.0 874.0 A 50.0 50.0 0 0 1 775.0 924.0" fill="none" stroke="#000" stroke-width="1"/>
+<line x1="220.0" y1="1226.5" x2="300.0" y2="1226.5" stroke="#000" stroke-width="1"/><line x1="220.0" y1="1221.5" x2="300.0" y2="1221.5" stroke="#000" stroke-width="1"/>
+<line x1="157.5" y1="1074.0" x2="157.5" y2="1154.0" stroke="#000" stroke-width="1"/><line x1="162.5" y1="1074.0" x2="162.5" y2="1154.0" stroke="#000" stroke-width="1"/>
+<line x1="170.0" y1="766.5" x2="250.0" y2="766.5" stroke="#000" stroke-width="1"/><line x1="170.0" y1="761.5" x2="250.0" y2="761.5" stroke="#000" stroke-width="1"/>
+<line x1="220.0" y1="496.5" x2="300.0" y2="496.5" stroke="#000" stroke-width="1"/><line x1="220.0" y1="491.5" x2="300.0" y2="491.5" stroke="#000" stroke-width="1"/>
+<line x1="660.0" y1="1226.5" x2="740.0" y2="1226.5" stroke="#000" stroke-width="1"/><line x1="660.0" y1="1221.5" x2="740.0" y2="1221.5" stroke="#000" stroke-width="1"/>
+<line x1="797.5" y1="1034.0" x2="797.5" y2="1114.0" stroke="#000" stroke-width="1"/><line x1="802.5" y1="1034.0" x2="802.5" y2="1114.0" stroke="#000" stroke-width="1"/>
+<line x1="440.0" y1="1226.5" x2="520.0" y2="1226.5" stroke="#000" stroke-width="1"/><line x1="440.0" y1="1221.5" x2="520.0" y2="1221.5" stroke="#000" stroke-width="1"/>
+<line x1="670.0" y1="506.5" x2="730.0" y2="506.5" stroke="#000" stroke-width="1"/><line x1="670.0" y1="501.5" x2="730.0" y2="501.5" stroke="#000" stroke-width="1"/>
+<line x1="157.5" y1="924.0" x2="157.5" y2="964.0" stroke="#000" stroke-width="1"/><line x1="162.5" y1="924.0" x2="162.5" y2="964.0" stroke="#000" stroke-width="1"/>
+<line x1="257.5" y1="804.0" x2="257.5" y2="844.0" stroke="#000" stroke-width="1"/><line x1="262.5" y1="804.0" x2="262.5" y2="844.0" stroke="#000" stroke-width="1"/>
+<line x1="797.5" y1="844.0" x2="797.5" y2="884.0" stroke="#000" stroke-width="1"/><line x1="802.5" y1="844.0" x2="802.5" y2="884.0" stroke="#000" stroke-width="1"/>
 <line x1="80.0" y1="110.0" x2="80.0" y2="152.0" stroke="#000" stroke-width="1"/><line x1="880.0" y1="110.0" x2="880.0" y2="152.0" stroke="#000" stroke-width="1"/><line x1="80.0" y1="148.0" x2="880.0" y2="148.0" stroke="#000" stroke-width="1"/><line x1="76.0" y1="152.0" x2="84.0" y2="144.0" stroke="#000" stroke-width="1.4"/><line x1="876.0" y1="152.0" x2="884.0" y2="144.0" stroke="#000" stroke-width="1.4"/><text x="480.0" y="142.0" font-size="12" text-anchor="middle">40'-0"</text>
 <line x1="74.0" y1="104.0" x2="36.0" y2="104.0" stroke="#000" stroke-width="1"/><line x1="74.0" y1="1304.0" x2="36.0" y2="1304.0" stroke="#000" stroke-width="1"/><line x1="40.0" y1="104.0" x2="40.0" y2="1304.0" stroke="#000" stroke-width="1"/><line x1="36.0" y1="108.0" x2="44.0" y2="100.0" stroke="#000" stroke-width="1.4"/><line x1="36.0" y1="1308.0" x2="44.0" y2="1300.0" stroke="#000" stroke-width="1.4"/><text x="32.0" y="704.0" font-size="12" text-anchor="middle" transform="rotate(-90 32.0 704.0)">60'-0"</text>
 <g><circle cx="932.0" cy="138.0" r="17" fill="none" stroke="#000" stroke-width="1.4"/><polygon points="932.0,125.0 926.5,140.0 937.5,140.0" fill="#000"/><text x="932.0" y="152.0" font-size="11" font-weight="bold" text-anchor="middle">N</text></g>
