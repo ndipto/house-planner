@@ -1,5 +1,5 @@
 # app.py
-# House Planner web page (Day 1: brief -> room program).
+# House Planner web page (Day 2: brief -> room program -> floor plan).
 #
 # Run it with: streamlit run app.py
 # Then open the local address Streamlit prints (usually http://localhost:8501).
@@ -7,6 +7,8 @@
 import streamlit as st
 
 from ai_program import format_ft_in, get_room_program
+from draw import svg_plan
+from layout import build_layout
 
 
 def _rooms_for_table(rooms):
@@ -48,7 +50,7 @@ def _rooms_for_table(rooms):
 st.title("House Planner")
 st.write(
     "Describe the house you want. The app asks Muse Spark for a room "
-    "program and checks sizes, toilets, and the area budget."
+    "program, places the rooms on your plot, and draws a concept floor plan."
 )
 
 # --- Input form: plot + bedrooms + toilets + wishes ---
@@ -147,4 +149,46 @@ if st.button("Generate room program"):
     else:
         st.warning("Toilet rule needs attention:")
         for item in toilet_problems:
+            st.write("- " + item)
+
+    # 6. Floor plan: place rooms (plain Python), draw the SVG, list rules.
+    st.subheader("Floor plan")
+    with st.spinner("Trying candidate layouts and drawing the best plan..."):
+        try:
+            plan = build_layout(
+                rooms, plot_width, plot_depth, road_side, num_toilets,
+            )
+        except Exception as err:
+            st.error("Could not lay out the plan: %s" % err)
+            st.stop()
+    st.write(
+        "Tried %d candidate layout(s) in %.1f seconds; showing the best one."
+        % (plan["candidates_tried"], plan["seconds"])
+    )
+    if not plan["ok"]:
+        st.warning("No full plan fits this plot; showing the best attempt below.")
+    st.markdown(svg_plan(plan), unsafe_allow_html=True)
+
+    # 7. Hard-rule check for the drawn plan (doors/windows arrive Day 3).
+    st.subheader("Plan rule check")
+    if plan["rules"]:
+        st.table([
+            {"Rule": "%s. %s" % (row["id"], row["name"]),
+             "Result": row["status"],
+             "Detail": row["detail"]}
+            for row in plan["rules"]
+        ])
+    else:
+        st.warning("No plan to check.")
+
+    # 8. Design goals (soft) + placer notes.
+    st.subheader("Design goals")
+    if plan["goals"]:
+        st.table([
+            {"Goal": row["name"], "Result": row["status"], "Detail": row["detail"]}
+            for row in plan["goals"]
+        ])
+    if plan["notes"]:
+        st.subheader("Placer notes")
+        for item in plan["notes"]:
             st.write("- " + item)
