@@ -167,6 +167,11 @@ if st.button("Generate room program"):
     )
     if not plan["ok"]:
         st.warning("No full plan fits this plot; showing the best attempt below.")
+    if plan.get("livable", True):
+        st.success("LIVABLE: passes livability checks 13-16.")
+    else:
+        st.error("UNLIVABLE: fails livability checks %s (see rules 13-17 below)."
+                 % ", ".join(plan.get("livability_fails", ["?"])))
     st.markdown(svg_plan(plan), unsafe_allow_html=True)
 
     # 7. Hard-rule check for the drawn plan (doors/windows arrive Day 3).

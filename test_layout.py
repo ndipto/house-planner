@@ -16,7 +16,9 @@ import xml.etree.ElementTree as ET
 
 from ai_program import SIZE_RULES
 from draw import svg_plan
-from layout import build_layout
+# _check_all is private but it is the honest entry point for hand-made
+# mini-plans (build_layout would run a full search instead).
+from layout import _check_all, build_layout, livability_verdict
 
 
 def _room(name, room_type, width, depth, veranda=False, kind="", attached=""):
@@ -89,9 +91,20 @@ def _rule_status(result, rule_id):
     return "?"
 
 
+_DEMO = None
+
+
+def _demo_result():
+    """Demo plan, built once and shared (the search takes seconds)."""
+    global _DEMO
+    if _DEMO is None:
+        _DEMO = build_layout(PROGRAM_3BED, 40, 60, "South", 3)
+    return _DEMO
+
+
 def test_demo_case():
     """40x60, road South, 3 bed, 3 toilet: strict plan, all rules pass."""
-    result = build_layout(PROGRAM_3BED, 40, 60, "South", 3)
+    result = _demo_result()
     assert result["ok"], "demo plan should build"
     assert not result["truncated"], "demo search should finish in cap"
     assert result["candidates_tried"] > 10, "should try many candidates"
@@ -162,9 +175,77 @@ def test_one_bedroom():
     print("PASS test_one_bedroom (common toilet on common space)")
 
 
+def test_livability_verdict():
+    """Demo plan is UNLIVABLE until placer strategies land (pinned)."""
+    result = _demo_result()
+    assert result["livable"] is False, "demo should be UNLIVABLE for now"
+    assert result["livability_fails"] == ["13", "14", "16"], \
+        "demo should fail kitchen walls, bedroom walls, circulation"
+    assert _rule_status(result, "13") == "FAIL", "kitchen has 3.5 ft, needs 6"
+    assert _rule_status(result, "14") == "FAIL", "Bedroom 2 has 4.5 ft, needs 6"
+    assert _rule_status(result, "15") == "PASS", "toilets are exterior"
+    assert _rule_status(result, "16") == "FAIL", "routes cross kitchen/bedroom"
+    print("PASS test_livability_verdict (UNLIVABLE on 13, 14, 16)")
+
+
+def _mrect(name, room_type, x, y, width, depth, kind="", veranda_for=""):
+    """One hand-placed rect with the fields the checker reads."""
+    return {"name": name, "type": room_type, "x": x, "y": y,
+            "w": width, "d": depth, "bathroom_kind": kind,
+            "attached_to": "", "needs_veranda": False,
+            "veranda_for": veranda_for}
+
+
+def _mini_rules(rects):
+    """Rule rows for a hand-made mini-plan (no search)."""
+    info = {"row_front_y": 0, "row_widths": [30], "house_back": 30}
+    rules, _goals, _quality = _check_all(rects, info, 40, 50, "south", 1,
+                                         livability=True)
+    return rules
+
+
+def test_circulation_pass_branch():
+    """Hand-made plan where every route keeps to common rooms."""
+    rects = [
+        _mrect("Foyer", "foyer", 0, 10, 10, 10),
+        _mrect("Dining", "dining", 10, 10, 10, 10),
+        _mrect("Kitchen", "kitchen", 20, 10, 8, 10),
+        _mrect("Kitchen veranda", "veranda", 28, 10, 4, 6,
+               veranda_for="Kitchen"),
+        _mrect("Bedroom", "bedroom", 10, 20, 12, 10),
+        _mrect("Common", "bathroom", 2, 20, 8, 8, kind="common"),
+    ]
+    by_id = {row["id"]: row for row in _mini_rules(rects)}
+    assert by_id["13"]["status"] == "PASS", "kitchen has 10 ft exterior + veranda"
+    assert by_id["14"]["status"] == "PASS", "bedroom has 10 ft window wall"
+    assert by_id["15"]["status"] == "PASS", "common toilet exterior"
+    assert by_id["16"]["status"] == "PASS", "all routes via common rooms"
+    assert livability_verdict(list(by_id.values())) == (True, [])
+    print("PASS test_circulation_pass_branch (mini-plan LIVABLE)")
+
+
+def test_circulation_kitchen_trap():
+    """Hand-made plan where the bedroom route must cross the kitchen."""
+    rects = [
+        _mrect("Bedroom", "bedroom", 20, 0, 10, 10),
+        _mrect("Kitchen", "kitchen", 10, 0, 10, 10),
+        _mrect("Common", "bathroom", 3, 0, 7, 10, kind="common"),
+        _mrect("Foyer", "foyer", 3, 10, 10, 8),
+    ]
+    by_id = {row["id"]: row for row in _mini_rules(rects)}
+    assert by_id["13"]["status"] == "FAIL", "kitchen has no veranda"
+    assert by_id["16"]["status"] == "FAIL", "bedroom route crosses kitchen"
+    assert "KITCHEN" in by_id["16"]["detail"], "report must name the crossing"
+    assert livability_verdict(list(by_id.values()))[0] is False
+    print("PASS test_circulation_kitchen_trap (UNLIVABLE, crossing named)")
+
+
 if __name__ == "__main__":
     test_demo_case()
     test_svg_rotation()
     test_impossible_plot()
     test_one_bedroom()
+    test_livability_verdict()
+    test_circulation_pass_branch()
+    test_circulation_kitchen_trap()
     print("ALL LAYOUT TESTS PASSED")

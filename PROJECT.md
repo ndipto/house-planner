@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Day 2 done Oct 29 (layout engine + SVG plan drawing; 40x60 South 3-bed demo passes all checkable rules). Next: doors + windows (Day 3).
+**Status:** Day 2 done Oct 29 (layout + drawing); strict livability checks 13-17 added same day — demo UNLIVABLE on kitchen/bedroom walls + circulation, placer fix next.
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -67,6 +67,12 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 10. Verandas: up to 2 bedrooms get a veranda each (if fewer than 2 bedrooms, every bedroom gets one), and the kitchen has a veranda. Each veranda is separate — two verandas never connect/touch. Veranda width 3 to 5 ft; length at least 3 ft and never longer than its room's wall.
 11. Cross ventilation for living spaces and bedrooms. Hackathon proxy: openings on at least 2 different walls per room; OPPOSITE walls preferred, two adjacent walls is the minimum. Report per room: opposite / adjacent / failed.
 12. The plan drawing shows doors and windows (doors and windows are modeled as objects: which rooms/walls they connect, not just drawn boxes).
+13. Kitchen exterior wall: the kitchen has at least 6 ft of continuous exterior wall (west preferred, soft); its veranda sits on that exterior wall (3 ft+ shared).
+14. Bedroom window walls: every bedroom has at least 6 ft of continuous exterior wall usable for a window (a wall facing its own veranda counts; a wall blocked by a toilet or another room does not). Two exterior walls is better (reported).
+15. Toilet exterior wall: every toilet has an exterior wall (enforced alongside rule 8 for the verdict).
+16. Circulation: the route from every bedroom to the common toilet, and from the foyer to every indoor room except attached baths, passes only through foyer, living room, dining and family living — NEVER through the kitchen, a bedroom or a toilet. Attached baths are entered through their bedroom, porch/verandas through their host room (excluded as targets). Adjacency means a shared wall; door-sized refinement arrives Day 3.
+17. Cross-ventilation walls: living room, family living, dining and bedrooms need exterior walls on 2 sides (opposite preferred); reported per room, never flips the verdict (openings modeled Day 3).
+Failing any of rules 13-16 marks the plan UNLIVABLE (red) in the UI. Livability is report-only until placer strategies land (next step); the placer is frozen meanwhile.
 
 **Zoning strategy (placement order, road side inward):** Porch and foyer/entry first, then living room (public zone); then dining, kitchen and family living (semi-private zone); bedrooms at the back and sides (private zone), clustered around family living.
 
@@ -150,6 +156,7 @@ Update this list as we go (each item: date + one line).
 - [x] Oct 29: Brief → room program with Muse Spark (requirements.txt, ai_program.py, app.py, .env.example).
 - [x] Oct 29 (update): area budget, room features, feet-inch display, toilet rule.
 - [x] Oct 29 (Day 2): room layout + plan drawing (layout.py, draw.py, app plan section, test_layout.py); 40x60 South 3-bed/3-toilet demo passes all checkable rules, impossible plots show best attempt + failed rules.
+- [x] Oct 29 (Day 2 update): strict livability checks 13-17 + UNLIVABLE verdict (checker only, placer frozen); demo UNLIVABLE on 13, 14, 16.
 - [x] Oct 30: `layout.py` — placement + rule checks working (done Oct 29, Day 2).
 - [x] Oct 31: `draw.py` — SVG plan rendering (done Oct 29, Day 2).
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).

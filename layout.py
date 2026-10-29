@@ -1280,15 +1280,129 @@ def _assemble(layout, row_offset, front_offset, back_offset, buckets,
     return rects, info
 
 
+# --- Livability helpers (strict Day-2 checks; report-only, see _score) ---
+
+# Hard-rule ids that decide the UNLIVABLE verdict (user items 1-4).
+LIVABILITY_IDS = ("13", "14", "15", "16")
+
+# Kitchen needs this much continuous exterior wall (ventilation opening
+# plus the veranda door share it). Architect to confirm the 6 ft bar:
+# the demo plan's kitchen has only a 3.5 ft notch wall.
+KITCHEN_MIN_EXTERIOR_FT = 6
+
+# Bedrooms need this much continuous exterior wall for a window.
+BEDROOM_MIN_WINDOW_FT = 6
+
+# Rooms wide enough to count as one cross-ventilation side.
+VENT_SIDE_FT = 3
+
+# Only these rooms may sit in the middle of a circulation route.
+CIRCULATION_ROOMS = ("foyer", "living room", "dining", "family living")
+
+# Two rects count as neighbours (a door could join them) past this
+# much shared wall. Door-sized (3 ft) refinement arrives with Day 3.
+NEIGHBOUR_FT = 0.5
+
+
+def livability_verdict(rules):
+    """(livable, failed_ids) from finished rule rows.
+
+    UNLIVABLE iff any of rules 13-16 FAIL. Rule 17 (cross-ventilation
+    walls) is reported only and never flips the verdict.
+    """
+    failed = [row["id"] for row in rules
+              if row["id"] in LIVABILITY_IDS and row["status"] == "FAIL"]
+    return (not failed, failed)
+
+
+def _compass_west_wall(road_side):
+    """Local wall facing compass west (local x runs road-parallel)."""
+    return {"south": "W", "north": "E", "east": "N", "west": "S"}.get(
+        road_side, "W")
+
+
+def _room_blockers(rects, rect):
+    """Rects that block `rect`'s walls: toilets and rooms, never outdoor.
+
+    Porch/verandas are outdoor space, so a wall facing them (including
+    the room's own veranda) still counts as exterior, per the rules.
+    """
+    return [other for other in rects
+            if other is not rect and other["type"] not in ("porch", "veranda")]
+
+
+def _wall_runs(rect, rects):
+    """Exterior runs per wall: {"W": [(s, e)], ...} in wall coords."""
+    blockers = _room_blockers(rects, rect)
+    return {wall: _exterior_segments(rect, blockers, wall)
+            for wall in ("W", "E", "S", "N")}
+
+
+def _longest_run(runs):
+    """(length, wall) of the longest exterior run, (0, "-") when none."""
+    best, wall = 0.0, "-"
+    for side, segments in runs.items():
+        for start, end in segments:
+            if end - start > best:
+                best, wall = end - start, side
+    return best, wall
+
+
+def _neighbours(rect, rects):
+    """Room names sharing a real wall with `rect` (not a corner graze)."""
+    return sorted(other["name"] for other in rects
+                  if other is not rect and shared_wall(rect, other) > NEIGHBOUR_FT)
+
+
+def _find_route(rects, start_name, goal_name, allowed_types):
+    """Shortest route (room names) with allowed middles, or None.
+
+    Start and goal rooms are exempt (you begin in a bedroom, end in a
+    toilet); every room between must be in `allowed_types`. Indoor rooms
+    only: porch/verandas can never be pass-through space.
+    """
+    indoor = [r for r in rects if r["type"] not in ("porch", "veranda")]
+    by_name = {r["name"]: r for r in indoor}
+    if start_name not in by_name or goal_name not in by_name:
+        return None
+    queue, seen = [[start_name]], {start_name}
+    while queue:
+        path = queue.pop(0)
+        if path[-1] == goal_name:
+            return path
+        for nxt in _neighbours(by_name[path[-1]], indoor):
+            if nxt in seen:
+                continue
+            if nxt != goal_name and by_name[nxt]["type"] not in allowed_types:
+                continue
+            seen.add(nxt)
+            queue.append(path + [nxt])
+    return None
+
+
+def _route_crosses(path, rects):
+    """First forbidden room type on a path's middle, "" when clean."""
+    by_name = {r["name"]: r for r in rects}
+    for name in path[1:-1]:
+        kind = by_name[name]["type"]
+        if kind not in CIRCULATION_ROOMS:
+            return kind
+    return ""
+
+
 # --- Rule checker: all 12 hard rules + geometry + design goals ---
 
-def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
+def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
+               livability=False):
     """Check one placed plan. Returns (rules, goals, quality).
 
     rules: [{id, name, status, detail}] with status PASS/FAIL/PENDING.
     Door/window rules are PENDING until Day 3 but already report the useful
     adjacency facts. goals: [{name, status, detail}] (MET/MISSED/N/A).
     quality: small dict of tiebreak facts for the scorer.
+    livability=True appends the strict rules 13-17 (UNLIVABLE verdict).
+    The search scores candidates WITHOUT them (report-only until placer
+    strategies land); only the winning plan gets the strict rows.
     """
     rules = []
     baths = [r for r in rects if r["type"] == "bathroom"]
@@ -1477,6 +1591,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
                        "; ".join(geo_problems) if geo_problems
                        else "all %d rooms inside, no overlaps" % len(rects)))
 
+    if livability:
+        rules.extend(_check_livability(rects, road_side))
+
     # Design goals (soft): entry, outline, landscape, kitchen west.
     goals = []
     porch = [r for r in rects if r["type"] == "porch"]
@@ -1529,6 +1646,196 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
                "back_margin": back_margin, "west_met": west_met,
                "windowed_beds": windowed_beds}
     return rules, goals, quality
+
+
+def _check_livability(rects, road_side):
+    """Strict rules 13-17 rows (13-16 decide UNLIVABLE; 17 reported)."""
+    return [_check_kitchen_exterior(rects, road_side),
+            _check_bedroom_walls(rects),
+            _check_toilet_exterior(rects),
+            _check_circulation(rects),
+            _check_vent_walls(rects)]
+
+
+def _shared_wall_and_span(host, other):
+    """(wall, start, end) of `other` on `host`, (None, 0, 0) if apart."""
+    x0, y0 = host["x"], host["y"]
+    x1, y1 = x0 + host["w"], y0 + host["d"]
+    o_x0, o_y0 = other["x"], other["y"]
+    o_x1, o_y1 = o_x0 + other["w"], o_y0 + other["d"]
+    if abs(o_x1 - x0) < 0.01:
+        return "W", max(y0, o_y0) - y0, min(y1, o_y1) - y0
+    if abs(o_x0 - x1) < 0.01:
+        return "E", max(y0, o_y0) - y0, min(y1, o_y1) - y0
+    if abs(o_y1 - y0) < 0.01:
+        return "S", max(x0, o_x0) - x0, min(x1, o_x1) - x0
+    if abs(o_y0 - y1) < 0.01:
+        return "N", max(x0, o_x0) - x0, min(x1, o_x1) - x0
+    return None, 0.0, 0.0
+
+
+def _check_kitchen_exterior(rects, road_side):
+    """Rule 13: kitchen exterior wall (west preferred) + veranda on it."""
+    kitchens = [r for r in rects if r["type"] == "kitchen"]
+    if not kitchens:
+        return _rule("13", "Kitchen exterior wall + veranda on it",
+                     "FAIL", "no kitchen in plan")
+    kitchen = kitchens[0]
+    runs = _wall_runs(kitchen, rects)
+    longest, wall = _longest_run(runs)
+    west = _compass_west_wall(road_side)
+    west_best = max([end - start for start, end in runs[west]] or [0.0])
+    problems, notes = [], []
+    if longest < KITCHEN_MIN_EXTERIOR_FT - EPS:
+        problems.append("longest exterior %.1f ft %s (needs %d)" % (
+            longest, wall, KITCHEN_MIN_EXTERIOR_FT))
+    else:
+        notes.append("exterior %.1f ft %s" % (longest, wall))
+    if west_best >= VENT_SIDE_FT - EPS:
+        notes.append("west wall ventilated")
+    else:
+        notes.append("west preferred (west has %.1f ft)" % west_best)
+    verandas = [r for r in rects if r["type"] == "veranda"
+                and r.get("veranda_for") == kitchen["name"]]
+    if not verandas:
+        problems.append("kitchen has no veranda")
+    else:
+        side, start, end = _shared_wall_and_span(kitchen, verandas[0])
+        on_exterior = 0.0
+        if side is not None:
+            for seg_start, seg_end in runs[side]:
+                on_exterior += _overlap_1d(start, end, seg_start, seg_end)
+        if on_exterior < VENT_SIDE_FT - EPS:
+            problems.append("veranda not on an exterior wall")
+        else:
+            notes.append("veranda on %s exterior" % side)
+    return _rule("13", "Kitchen exterior wall + veranda on it",
+                 "FAIL" if problems else "PASS", "; ".join(problems + notes))
+
+
+def _check_bedroom_walls(rects):
+    """Rule 14: every bedroom needs 6 ft of exterior window wall."""
+    beds = [r for r in rects if r["type"] == "bedroom"]
+    if not beds:
+        return _rule("14", "Bedroom window walls (6 ft+)",
+                     "FAIL", "no bedrooms in plan")
+    lines, ok = [], True
+    for bed in beds:
+        runs = _wall_runs(bed, rects)
+        longest, wall = _longest_run(runs)
+        sides = sum(1 for segs in runs.values()
+                    if max([e - s for s, e in segs] or [0.0]) >= VENT_SIDE_FT - EPS)
+        if longest < BEDROOM_MIN_WINDOW_FT - EPS:
+            ok = False
+            lines.append("%s: best %.1f ft %s (%d window wall(s), needs 6)"
+                         % (bed["name"], longest, wall, sides))
+        else:
+            lines.append("%s: %.1f ft %s (%d window wall(s))"
+                         % (bed["name"], longest, wall, sides))
+    return _rule("14", "Bedroom window walls (6 ft+)",
+                 "PASS" if ok else "FAIL", "; ".join(lines))
+
+
+def _check_toilet_exterior(rects):
+    """Rule 15: every toilet has an exterior wall (with rule 8)."""
+    baths = [r for r in rects if r["type"] == "bathroom"]
+    if not baths:
+        return _rule("15", "Every toilet has exterior wall",
+                     "FAIL", "no toilets in plan")
+    lines, ok = [], True
+    for bath in baths:
+        total = sum(end - start
+                    for segs in _wall_runs(bath, rects).values()
+                    for start, end in segs)
+        if total < 0.5 - EPS:
+            ok = False
+            lines.append("%s: NO exterior wall" % bath["name"])
+        else:
+            lines.append("%s: %.1f ft exterior" % (bath["name"], total))
+    return _rule("15", "Every toilet has exterior wall",
+                 "PASS" if ok else "FAIL", "; ".join(lines))
+
+
+def _check_circulation(rects):
+    """Rule 16: routes only through foyer/living/dining/family.
+
+    Every bedroom reaches the common toilet, and the foyer reaches every
+    indoor room except attached baths (entered through their bedroom;
+    porch/verandas are entered through their host room). Kitchen,
+    bedrooms and toilets are never pass-through rooms.
+    """
+    beds = [r for r in rects if r["type"] == "bedroom"]
+    foyers = [r for r in rects if r["type"] == "foyer"]
+    commons = [r for r in rects if r["type"] == "bathroom"
+               and r["bathroom_kind"] != "attached"]
+    indoor = [r for r in rects if r["type"] not in ("porch", "veranda")]
+    targets = [r for r in indoor
+               if not (r["type"] == "bathroom"
+                       and r["bathroom_kind"] == "attached")]
+    pairs = []
+    if not commons:
+        pairs.append((None, None, "no common toilet in plan"))
+    for bed in beds:
+        for common in commons:
+            pairs.append((bed["name"], common["name"], ""))
+    if not foyers:
+        pairs.append((None, None, "no foyer in plan"))
+    for target in targets:
+        if foyers and target["name"] != foyers[0]["name"]:
+            pairs.append((foyers[0]["name"], target["name"], ""))
+    if not pairs:
+        return _rule("16", "Circulation via common rooms only",
+                     "FAIL", "nothing to route")
+    all_types = tuple(sorted({r["type"] for r in indoor}))
+    problems, good = [], 0
+    for start, goal, missing in pairs:
+        if start is None:
+            problems.append(missing)
+            continue
+        if _find_route(rects, start, goal, CIRCULATION_ROOMS) is not None:
+            good += 1
+            continue
+        raw = _find_route(rects, start, goal, all_types)
+        if raw is None:
+            problems.append("%s -> %s: NO route (disconnected)"
+                            % (start, goal))
+        else:
+            problems.append("%s -> %s: crosses %s (%s)"
+                            % (start, goal,
+                               _route_crosses(raw, rects).upper() or "nowhere",
+                               " -> ".join(raw)))
+    detail = "; ".join(problems) if problems else ""
+    summary = "%d/%d routes ok" % (good, len(pairs))
+    detail = (detail + "; " + summary) if detail else summary
+    return _rule("16", "Circulation via common rooms only",
+                 "FAIL" if problems else "PASS", detail)
+
+
+def _check_vent_walls(rects):
+    """Rule 17: living spaces + bedrooms on 2 exterior sides (reported)."""
+    rooms = [r for r in rects
+             if r["type"] in ("living room", "family living", "dining",
+                              "bedroom")]
+    if not rooms:
+        return _rule("17", "Cross-vent walls, 2 sides (reported only)",
+                     "FAIL", "no living spaces/bedrooms in plan")
+    lines, ok = [], True
+    for room in rooms:
+        runs = _wall_runs(room, rects)
+        sides = sorted(wall for wall, segs in runs.items()
+                       if max([e - s for s, e in segs] or [0.0])
+                       >= VENT_SIDE_FT - EPS)
+        if len(sides) >= 2:
+            pair = "opposite" if ({"W", "E"} <= set(sides)
+                                  or {"S", "N"} <= set(sides)) else "adjacent"
+            lines.append("%s: %s (%s)" % (room["name"], pair, "+".join(sides)))
+        else:
+            ok = False
+            lines.append("%s: %d side(s) (%s)"
+                         % (room["name"], len(sides),
+                            "+".join(sides) if sides else "none"))
+    return _rule("17", "Cross-vent walls, 2 sides (reported only)",
+                 "PASS" if ok else "FAIL", "; ".join(lines))
 
 
 def _rule(rule_id, name, status, detail):
@@ -1597,8 +1904,15 @@ def _check_room_size(rect, rects):
 
 
 def _score(rules, goals, quality):
-    """One number per candidate: hard fails hurt most, goals break ties."""
-    fails = sum(1 for r in rules if r["status"] == "FAIL")
+    """One number per candidate: hard fails hurt most, goals break ties.
+
+    Livability rows 13-17 NEVER score (report-only until placer
+    strategies land): counting them would silently change the winner,
+    and the placer is frozen until the next step. The verdict is
+    computed from the winning plan only (see livability_verdict).
+    """
+    fails = sum(1 for r in rules if r["status"] == "FAIL"
+                and r["id"] not in LIVABILITY_IDS and r["id"] != "17")
     met = sum(1 for g in goals if g["status"] == "MET")
     return (-100 * fails + 5 * met + 2 * quality["direct_doors"]
             + quality["windowed_beds"]
@@ -1629,7 +1943,8 @@ def build_layout(program_rooms, plot_width, plot_depth, road_side, num_toilets):
     base = {"plot": {"w": plot_w, "d": plot_d, "road": road},
             "buildable": {"w": build_w, "d": build_d},
             "candidates_tried": 0, "feasible": 0, "seconds": 0.0,
-            "truncated": False, "score": 0.0}
+            "truncated": False, "score": 0.0, "livable": False,
+            "livability_fails": ["no plan built"]}
     if build_w <= 0 or build_d <= 0:
         base.update({"ok": False, "placements": [], "rules": [], "goals": [],
                      "notes": ["Plot too small: setbacks leave no buildable area."],
@@ -1732,10 +2047,15 @@ def build_layout(program_rooms, plot_width, plot_depth, road_side, num_toilets):
                                                     tried += 1
                                                     feasible += 1
                                                     sub = list(notes) + combo_notes
+                                                    # Search scores WITHOUT
+                                                    # livability rows (placer
+                                                    # frozen); the winner is
+                                                    # re-checked strictly below.
                                                     rules, goals, quality = _check_all(
                                                         cand_rects, cand_info,
                                                         build_w, build_d,
-                                                        road, num_toilets)
+                                                        road, num_toilets,
+                                                        livability=False)
                                                     # Rows must connect:
                                                     # consecutive rows share
                                                     # x-range, else penalize.
@@ -1797,15 +2117,22 @@ def build_layout(program_rooms, plot_width, plot_depth, road_side, num_toilets):
                      "notes": notes + ["No candidate could be built at all."],
                      "house": {}})
         return base
+    # Strict livability re-check of the UNCHANGED winner (report-only:
+    # placements, score and selection are exactly as the search left them).
+    strict_rules, strict_goals, _strict_quality = _check_all(
+        best["rects"], best["info"], build_w, build_d, road, num_toilets,
+        livability=True)
+    livable, livability_fails = livability_verdict(strict_rules)
     placements = []
     for rect in best["rects"]:
         moved = dict(rect)
         moved["x"] += SETBACK_SIDE_FT
         moved["y"] += SETBACK_FRONT_FT
         placements.append(moved)
-    base.update({"ok": True, "placements": placements, "rules": best["rules"],
-                 "goals": best["goals"], "score": best["score"],
+    base.update({"ok": True, "placements": placements, "rules": strict_rules,
+                 "goals": strict_goals, "score": best["score"],
                  "notes": best["extra_notes"],
+                 "livable": livable, "livability_fails": livability_fails,
                  "house": {"w": best["info"]["house_w"],
                            "back": best["info"]["house_back"]}})
     return base
