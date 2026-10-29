@@ -28,7 +28,7 @@ from layout import SHORT_NAMES
 
 
 def svg_plan(result):
-    """Render a build_layout() result as a standalone SVG plan string."""
+    """Render one plan option as a standalone SVG plan string."""
     plot = result.get("plot", {})
     road = str(plot.get("road", "south")).strip().lower()
     if road not in ("north", "south", "east", "west"):

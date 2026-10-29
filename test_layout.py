@@ -1,24 +1,20 @@
 # test_layout.py
-# Day 2 maintained check: layout engine + SVG drawing.
+# Day 2 typology tests: three options (A/B/C) per brief, checked + scored.
 #
-# No test framework needed, run from the repo root with:
-#   python test_layout.py
-# Prints PASS lines; any failure raises AssertionError (exit code 1).
-#
-# Covers the fixed Day 2 behaviors: the strict search finds a fully
-# passing plan for the 40x60 demo (no relax fallback), geometry is
-# independently clean (inside buildable, no overlaps), the SVG is
-# well-formed with the ROAD label on the real side for all four road
-# directions, and impossible plots return a best attempt with the
-# failed rules listed (never a crash or an empty plan).
+# Run them with: python test_layout.py
+# Every test pins honest behavior: livable options, known bends, and the
+# briefs the typologies cannot satisfy (reported, never hidden).
 
 import xml.etree.ElementTree as ET
 
-from ai_program import SIZE_RULES
+from ai_program import (
+    SETBACK_FRONT_FT,
+    SETBACK_SIDE_FT,
+    SIZE_RULES,
+)
 from draw import svg_plan
-# _check_all is private but it is the honest entry point for hand-made
-# mini-plans (build_layout would run a full search instead).
-from layout import _check_all, build_layout, livability_verdict
+from layout import RELAXED_RANGES, _check_all, livability_verdict
+from typology import build_options
 
 
 def _room(name, room_type, width, depth, veranda=False, kind="", attached=""):
@@ -46,19 +42,29 @@ PROGRAM_3BED = [
           attached="Bedroom 2"),
 ]
 
+PROGRAM_1BED = [
+    _room("Porch", "porch", 8, 5),
+    _room("Foyer", "foyer", 8, 10),
+    _room("Living Room", "living room", 13, 14),
+    _room("Dining", "dining", 11, 13),
+    _room("Kitchen", "kitchen", 10, 13, veranda=True),
+    _room("Family Living", "family living", 13, 14),
+    _room("Bedroom 1", "bedroom", 12, 13, veranda=True),
+    _room("Common Toilet", "bathroom", 7, 8, kind="common"),
+]
+
 
 def _overlap_1d(a0, a1, b0, b1):
     return max(0.0, min(a1, b1) - max(a0, b0))
 
 
-def _independent_errors(result):
+def _independent_errors(placements, buildable):
     """Re-verify geometry from raw placements (not the checker's word)."""
     errors = []
-    rects = result["placements"]
-    build = result["buildable"]
-    bx0, by0 = 1.5, 6.0  # buildable rect in plot-local coords
-    bx1, by1 = bx0 + build["w"], by0 + build["d"]
-    for rect in rects:
+    bx0, by0 = SETBACK_SIDE_FT, SETBACK_FRONT_FT  # buildable in plot coords
+    bx1 = bx0 + buildable["width"]
+    by1 = by0 + buildable["depth"]
+    for rect in placements:
         if not (rect["x"] >= bx0 - 0.01 and rect["y"] >= by0 - 0.01
                 and rect["x"] + rect["w"] <= bx1 + 0.01
                 and rect["y"] + rect["d"] <= by1 + 0.01):
@@ -66,14 +72,18 @@ def _independent_errors(result):
         kind = rect["type"]
         if kind in SIZE_RULES:
             low, high = SIZE_RULES[kind]
-            if not low - 1e-6 <= rect["w"] <= high + 1e-6:
-                errors.append("width out of range: %s" % rect["name"])
-            if not low - 1e-6 <= rect["d"] <= high + 1e-6:
-                errors.append("depth out of range: %s" % rect["name"])
+            relaxed = RELAXED_RANGES.get(kind)
+            for side, label in ((rect["w"], "width"), (rect["d"], "depth")):
+                if low - 1e-6 <= side <= high + 1e-6:
+                    continue
+                if relaxed is not None and relaxed[0] - 1e-6 <= side \
+                        <= relaxed[1] + 1e-6:
+                    continue  # legal bend (rule 1 reports it)
+                errors.append("%s out of range: %s" % (label, rect["name"]))
             if abs(rect["w"] - rect["d"]) < 1 - 1e-6:
                 errors.append("square-ish: %s" % rect["name"])
-    for i, first in enumerate(rects):
-        for second in rects[i + 1:]:
+    for i, first in enumerate(placements):
+        for second in placements[i + 1:]:
             area = (_overlap_1d(first["x"], first["x"] + first["w"],
                                  second["x"], second["x"] + second["w"])
                     * _overlap_1d(first["y"], first["y"] + first["d"],
@@ -81,39 +91,74 @@ def _independent_errors(result):
             if area > 0.01:
                 errors.append("overlap: %s x %s"
                               % (first["name"], second["name"]))
+        for dim in ("x", "y", "w", "d"):
+            doubled = round(first[dim] * 2)
+            assert abs(first[dim] * 2 - doubled) < 0.01, \
+                "6-inch rounding: %s %s" % (first["name"], dim)
     return errors
 
 
-def _rule_status(result, rule_id):
-    for row in result["rules"]:
+def _rule_status(option, rule_id):
+    for row in option["rules"]:
         if row["id"] == rule_id:
             return row["status"]
     return "?"
 
 
-_DEMO = None
+def _svg_for(option, plot):
+    """Adapt one option to the svg_plan() plan shape (mirrors the app)."""
+    return {"ok": True, "placements": option["placements"],
+            "plot": {"w": plot["width"], "d": plot["depth"],
+                     "road": plot["road"]}}
 
 
-def _demo_result():
-    """Demo plan, built once and shared (the search takes seconds)."""
-    global _DEMO
-    if _DEMO is None:
-        _DEMO = build_layout(PROGRAM_3BED, 40, 60, "South", 3)
-    return _DEMO
+def _center_x(placements, name):
+    for rect in placements:
+        if rect["name"] == name:
+            return rect["x"] + rect["w"] / 2
+    raise AssertionError("missing room %s" % name)
 
 
-def test_demo_case():
-    """40x60, road South, 3 bed, 3 toilet: strict plan, all rules pass."""
-    result = _demo_result()
-    assert result["ok"], "demo plan should build"
-    assert not result["truncated"], "demo search should finish in cap"
-    assert result["candidates_tried"] > 10, "should try many candidates"
-    for rule_id in ("1", "2", "3", "7", "8", "10", "G"):
-        assert _rule_status(result, rule_id) == "PASS", \
-            "demo rule %s should PASS" % rule_id
-    assert _independent_errors(result) == [], "demo geometry must be clean"
-    print("PASS test_demo_case (%d candidates, %.1fs)"
-          % (result["candidates_tried"], result["seconds"]))
+def _footprint(option):
+    """Sorted room boxes: two options with equal footprints are identical."""
+    return sorted((r["name"], r["x"], r["y"], r["w"], r["d"])
+                  for r in option["placements"])
+
+
+def test_typology_options():
+    """40x60, road North, 3 bed, 3 toilet: 3 livable, different options."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    options = result["options"]
+    assert [o["label"] for o in options] == ["A", "B", "C"]
+    assert all(o["tried"] > 0 for o in options), "each option tries layouts"
+    by_label = {o["label"]: o for o in options}
+    # Kitchen sides mirror (road North: compass west is high x).
+    assert _center_x(by_label["A"]["placements"], "Kitchen") > 20
+    assert _center_x(by_label["B"]["placements"], "Kitchen") < 20
+    assert _center_x(by_label["C"]["placements"], "Kitchen") > 20
+    # Master (largest bedroom) takes a different back corner per option.
+    assert _center_x(by_label["A"]["placements"], "Bedroom 1") < 20
+    assert _center_x(by_label["B"]["placements"], "Bedroom 1") > 20
+    assert _center_x(by_label["C"]["placements"], "Bedroom 1") > 20
+    # Genuinely different plans, each fully checked.
+    feet = [_footprint(o) for o in options]
+    assert feet[0] != feet[1] and feet[0] != feet[2] \
+        and feet[1] != feet[2], "options must differ"
+    for opt in options:
+        ids = [r["id"] for r in opt["rules"]]
+        for wanted in ("13", "14", "15", "16", "17"):
+            assert wanted in ids, "option %s lists rule %s" % (opt["label"],
+                                                               wanted)
+        assert _independent_errors(opt["placements"],
+                                   result["buildable"]) == [], \
+            "option %s geometry must be clean" % opt["label"]
+        ET.fromstring(svg_plan(_svg_for(opt, result["plot"])))
+    assert by_label["A"]["livable"] is True, "A livable, kitchen west"
+    assert by_label["A"]["livability_fails"] == []
+    assert by_label["B"]["livable"] is True, "B livable, mirrored"
+    assert _rule_status(by_label["B"], "13") == "BEND", "B misses west"
+    assert by_label["C"]["livable"] is True, "C livable, third variant"
+    print("PASS test_typology_options (A/B/C livable, B bends 13)")
 
 
 def test_svg_rotation():
@@ -154,38 +199,71 @@ def test_svg_rotation():
 
 
 def test_impossible_plot():
-    """Tiny plot: best attempt returned, failures listed, nothing crashes."""
-    result = build_layout(PROGRAM_3BED, 20, 20, "South", 3)
-    assert result["ok"], "best attempt should still build"
-    assert result["rules"], "failed rules must be listed"
-    assert _rule_status(result, "G") == "FAIL", "geometry must fail honestly"
-    ET.fromstring(svg_plan(result))
-    print("PASS test_impossible_plot (best attempt + failed rules)")
+    """Tiny plot: no options, honest note, nothing crashes."""
+    result = build_options(PROGRAM_3BED, 10, 10, "South", 3)
+    assert result["options"] == [], "no option fits a 10x10 plot"
+    assert result["notes"], "the reason must be noted"
+    print("PASS test_impossible_plot (no options + note)")
 
 
 def test_one_bedroom():
-    """1 bed + 1 toilet: common toilet placed on common space."""
-    small = [r for r in PROGRAM_3BED if r["name"] in (
-        "Porch", "Foyer", "Living Room", "Dining", "Kitchen",
-        "Family Living", "Bedroom 1", "Common Toilet")]
-    result = build_layout(small, 30, 40, "North", 1)
-    assert result["ok"], "small plan should build"
-    assert _rule_status(result, "7") == "PASS", "toilet rule should pass"
-    ET.fromstring(svg_plan(result))
-    print("PASS test_one_bedroom (common toilet on common space)")
+    """1 bed + 1 toilet: livable options, common toilet on common space."""
+    result = build_options(PROGRAM_1BED, 40, 60, "South", 1)
+    options = result["options"]
+    assert len(options) == 3, "1-bed brief still gets 3 options"
+    for opt in options:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "7") == "PASS", "toilet rule passes"
+        assert _independent_errors(opt["placements"],
+                                   result["buildable"]) == []
+        ET.fromstring(svg_plan(_svg_for(opt, result["plot"])))
+    by_label = {o["label"]: o for o in options}
+    assert [r["id"] for r in by_label["A"]["rules"]
+            if r["status"] == "FAIL"] == ["10"], \
+        "corner bedroom has no free veranda wall at this width (rule 10)"
+    print("PASS test_one_bedroom (3 livable, rule 10 honest)")
 
 
-def test_livability_verdict():
-    """Demo plan is UNLIVABLE until placer strategies land (pinned)."""
-    result = _demo_result()
-    assert result["livable"] is False, "demo should be UNLIVABLE for now"
-    assert result["livability_fails"] == ["13", "14", "16"], \
-        "demo should fail kitchen walls, bedroom walls, circulation"
-    assert _rule_status(result, "13") == "FAIL", "kitchen has 3.5 ft, needs 6"
-    assert _rule_status(result, "14") == "FAIL", "Bedroom 2 has 4.5 ft, needs 6"
-    assert _rule_status(result, "15") == "PASS", "toilets are exterior"
-    assert _rule_status(result, "16") == "FAIL", "routes cross kitchen/bedroom"
-    print("PASS test_livability_verdict (UNLIVABLE on 13, 14, 16)")
+def test_narrow_two_strip():
+    """Buildable under 30 ft: two-strip options; 1-bed works via option C."""
+    one = build_options(PROGRAM_1BED, 25, 60, "North", 1)
+    assert [o["typology"] for o in one["options"]] == ["two-strip"] * 3
+    by_label = {o["label"]: o for o in one["options"]}
+    assert by_label["C"]["livable"] is True, "alt order saves 1-bed narrow"
+    assert by_label["A"]["livable"] is False, "kitchen has no veranda wall"
+    assert "13" in by_label["A"]["livability_fails"]
+    assert _footprint(by_label["A"]) != _footprint(by_label["C"])
+    two_bed = list(PROGRAM_1BED) + [
+        _room("Bedroom 2", "bedroom", 11, 12),
+        _room("Bath 1", "bathroom", 7, 8, kind="attached",
+              attached="Bedroom 1"),
+    ]
+    two = build_options(two_bed, 25, 60, "North", 2)
+    for opt in two["options"]:
+        # Five side slots overconstrain one strip: honest UNLIVABLE.
+        assert opt["livable"] is False, "narrow 2-bed cannot all fit"
+        assert "13" in opt["livability_fails"], "kitchen keeps no veranda"
+        assert _independent_errors(opt["placements"],
+                                   two["buildable"]) == []
+    print("PASS test_narrow_two_strip (1-bed via C, 2-bed honest)")
+
+
+def test_l_shape_wide():
+    """Buildable 45 ft+: option C is an L-shape with court, fully green."""
+    result = build_options(PROGRAM_1BED, 55, 60, "South", 1)
+    by_label = {o["label"]: o for o in result["options"]}
+    assert by_label["C"]["typology"] == "l-shape", "wide plot gets the L"
+    assert by_label["C"]["livable"] is True
+    assert [r["id"] for r in by_label["C"]["rules"]
+            if r["status"] == "FAIL"] == [], "L has zero fails"
+    assert by_label["A"]["livable"] is True
+    assert [r["id"] for r in by_label["A"]["rules"]
+            if r["status"] == "FAIL"] == [], "A has zero fails"
+    for opt in result["options"]:
+        assert _independent_errors(opt["placements"],
+                                   result["buildable"]) == []
+    ET.fromstring(svg_plan(_svg_for(by_label["C"], result["plot"])))
+    print("PASS test_l_shape_wide (L green, A green)")
 
 
 def _mrect(name, room_type, x, y, width, depth, kind="", veranda_for=""):
@@ -199,8 +277,7 @@ def _mrect(name, room_type, x, y, width, depth, kind="", veranda_for=""):
 def _mini_rules(rects):
     """Rule rows for a hand-made mini-plan (no search)."""
     info = {"row_front_y": 0, "row_widths": [30], "house_back": 30}
-    rules, _goals, _quality = _check_all(rects, info, 40, 50, "south", 1,
-                                         livability=True)
+    rules, _goals, _quality = _check_all(rects, info, 40, 50, "south", 1)
     return rules
 
 
@@ -216,11 +293,12 @@ def test_circulation_pass_branch():
         _mrect("Common", "bathroom", 2, 20, 8, 8, kind="common"),
     ]
     by_id = {row["id"]: row for row in _mini_rules(rects)}
-    assert by_id["13"]["status"] == "PASS", "kitchen has 10 ft exterior + veranda"
-    assert by_id["14"]["status"] == "PASS", "bedroom has 10 ft window wall"
+    assert by_id["13"]["status"] == "BEND", "west wall covered, rest fine"
+    assert by_id["14"]["status"] == "PASS", "bedroom has 12 ft window walls"
     assert by_id["15"]["status"] == "PASS", "common toilet exterior"
     assert by_id["16"]["status"] == "PASS", "all routes via common rooms"
-    assert livability_verdict(list(by_id.values())) == (True, [])
+    assert livability_verdict(list(by_id.values())) == (True, []), \
+        "bends never flip the verdict"
     print("PASS test_circulation_pass_branch (mini-plan LIVABLE)")
 
 
@@ -241,11 +319,12 @@ def test_circulation_kitchen_trap():
 
 
 if __name__ == "__main__":
-    test_demo_case()
+    test_typology_options()
     test_svg_rotation()
     test_impossible_plot()
     test_one_bedroom()
-    test_livability_verdict()
+    test_narrow_two_strip()
+    test_l_shape_wide()
     test_circulation_pass_branch()
     test_circulation_kitchen_trap()
     print("ALL LAYOUT TESTS PASSED")

@@ -8,7 +8,14 @@ import streamlit as st
 
 from ai_program import format_ft_in, get_room_program
 from draw import svg_plan
-from layout import build_layout
+from typology import build_options
+
+
+def _svg_for_option(plot, option):
+    """Render one typology option via svg_plan (adapts the plan shape)."""
+    return svg_plan({"ok": True, "placements": option["placements"],
+                     "plot": {"w": plot["width"], "d": plot["depth"],
+                              "road": plot["road"]}})
 
 
 def _rooms_for_table(rooms):
@@ -50,7 +57,8 @@ def _rooms_for_table(rooms):
 st.title("House Planner")
 st.write(
     "Describe the house you want. The app asks Muse Spark for a room "
-    "program, places the rooms on your plot, and draws a concept floor plan."
+    "program, builds three layout options on your plot, and draws each "
+    "as a concept floor plan."
 )
 
 # --- Input form: plot + bedrooms + toilets + wishes ---
@@ -151,49 +159,64 @@ if st.button("Generate room program"):
         for item in toilet_problems:
             st.write("- " + item)
 
-    # 6. Floor plan: place rooms (plain Python), draw the SVG, list rules.
-    st.subheader("Floor plan")
-    with st.spinner("Trying candidate layouts and drawing the best plan..."):
+    # 6. Floor plan options: place rooms (plain Python), draw each SVG.
+    st.subheader("Floor plan options")
+    with st.spinner("Building three layout options..."):
         try:
-            plan = build_layout(
+            options_result = build_options(
                 rooms, plot_width, plot_depth, road_side, num_toilets,
             )
         except Exception as err:
             st.error("Could not lay out the plan: %s" % err)
             st.stop()
+    options = options_result["options"]
+    for item in options_result["notes"]:
+        st.write("- " + item)
+    if not options:
+        st.warning("No option fits this plot; try a bigger plot or fewer rooms.")
+        st.stop()
+    plot = options_result["plot"]
+    tried = sum(opt["tried"] for opt in options)
     st.write(
-        "Tried %d candidate layout(s) in %.1f seconds; showing the best one."
-        % (plan["candidates_tried"], plan["seconds"])
+        "Built %d option(s) (%d arrangements examined); scores rank them, "
+        "higher is better. UNLIVABLE means rules 13-16 or geometry G fail."
+        % (len(options), tried)
     )
-    if not plan["ok"]:
-        st.warning("No full plan fits this plot; showing the best attempt below.")
-    if plan.get("livable", True):
-        st.success("LIVABLE: passes livability checks 13-16.")
-    else:
-        st.error("UNLIVABLE: fails livability checks %s (see rules 13-17 below)."
-                 % ", ".join(plan.get("livability_fails", ["?"])))
-    st.markdown(svg_plan(plan), unsafe_allow_html=True)
+    columns = st.columns(len(options))
+    for column, opt in zip(columns, options):
+        with column:
+            st.markdown("### Option %s" % opt["label"])
+            st.write(opt["title"])
+            st.write("Score: %.1f" % opt["score"])
+            if opt["livable"]:
+                st.success("LIVABLE")
+            else:
+                st.error("UNLIVABLE (%s)"
+                         % ", ".join(opt["livability_fails"]))
+            st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
+            fails = [r["id"] for r in opt["rules"] if r["status"] == "FAIL"]
+            bends = [r["id"] for r in opt["rules"] if r["status"] == "BEND"]
+            st.write("Fail: %s; bend: %s."
+                     % (", ".join(fails) if fails else "none",
+                        ", ".join(bends) if bends else "none"))
 
-    # 7. Hard-rule check for the drawn plan (doors/windows arrive Day 3).
-    st.subheader("Plan rule check")
-    if plan["rules"]:
-        st.table([
-            {"Rule": "%s. %s" % (row["id"], row["name"]),
-             "Result": row["status"],
-             "Detail": row["detail"]}
-            for row in plan["rules"]
-        ])
-    else:
-        st.warning("No plan to check.")
-
-    # 8. Design goals (soft) + placer notes.
-    st.subheader("Design goals")
-    if plan["goals"]:
-        st.table([
-            {"Goal": row["name"], "Result": row["status"], "Detail": row["detail"]}
-            for row in plan["goals"]
-        ])
-    if plan["notes"]:
-        st.subheader("Placer notes")
-        for item in plan["notes"]:
-            st.write("- " + item)
+    # 7. Per-option detail (doors/windows arrive Day 3).
+    for opt in options:
+        with st.expander("Option %s details: %s"
+                         % (opt["label"], opt["title"])):
+            st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
+            st.table([
+                {"Rule": "%s. %s" % (row["id"], row["name"]),
+                 "Result": row["status"],
+                 "Detail": row["detail"]}
+                for row in opt["rules"]
+            ])
+            st.table([
+                {"Goal": row["name"], "Result": row["status"],
+                 "Detail": row["detail"]}
+                for row in opt["goals"]
+            ])
+            if opt["relaxed"]:
+                st.write("Relaxed sizes: %s." % ", ".join(opt["relaxed"]))
+            for item in opt["notes"]:
+                st.write("- " + item)
