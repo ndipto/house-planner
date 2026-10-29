@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Spec + design rules finalized Oct 29. No app code yet.
+**Status:** Day 1 done Oct 29 (brief → room program with area budget + toilet rule). Layout step next.
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -11,7 +11,7 @@ This file is the project memory. Muse Code should read it at the start of every 
 House Planner is a simple web app for **Bangladesh**, designed by a Bangladeshi architect. The user describes the house they want in plain words:
 
 - Plot width and depth (in feet), which side faces the road, and north direction
-- Number of bedrooms (bathrooms follow from the design rules, not asked)
+- Number of bedrooms and number of toilets (1 to bedrooms + 1, no default — the client must enter it)
 - Family needs and wishes in plain words (e.g. "home office", "big kitchen for family gatherings", "elderly parent on ground floor")
 
 The app returns a **single-floor 2D floor plan concept**: rooms placed on the plot, drawn as a clean, dimensioned plan with room names and areas.
@@ -35,7 +35,7 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 
 **Units and scope:** Feet and inches. Single floor only. Plot can be any size the client enters.
 
-**Inputs the user gives:** Plot width and depth, which side faces the road, north direction, number of bedrooms, wishes in plain words. (Number of bathrooms is derived from the rules below, not asked.)
+**Inputs the user gives:** Plot width and depth, which side faces the road, north direction, number of bedrooms, number of toilets (required, no default, 1 to bedrooms + 1), wishes in plain words.
 
 **Setbacks (defaults, user can edit in the app):** Front 6 ft, each side 1.5 ft, back 4 ft. Simplified, editable defaults — NOT full RAJUK rules. Real setbacks depend on road width and plot area.
 
@@ -60,7 +60,7 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 4. Kitchen has exactly one inner door, opening into dining, plus ONE allowed exception: a second door to its own veranda (decided Oct 29).
 5. Every bedroom door opens into family living; if impossible — defined as no shared wall length left for a 3 ft door — into dining; NEVER into the living room. Report which bedrooms used the dining fallback.
 6. Every bedroom has at least 1 window (2 preferred).
-7. Attached baths: attempt one attached bathroom per bedroom and report the score (X of Y achieved) — this part is a goal. BLOCKING check: at least one common bathroom with a door to common space (dining, family living, or corridor), reachable without passing through any bedroom.
+7. Toilets (client enters 1 to bedrooms + 1, no default): EXACTLY that many bathrooms. Exactly 1 is COMMON with a door to common space (dining, family living, or corridor), reachable without passing through any bedroom. All others are ATTACHED: master (largest) bedroom first, then next largest bedrooms, one each. 1-bedroom home: the single toilet is common; a 2nd toilet attaches to the master. Example: 3 bedrooms + 3 toilets = 2 attached + 1 common.
 8. Bathrooms touch an exterior wall (for ventilation). Never place a bathroom on the front (road) wall; if unavoidable, report it as a violation.
 9. Bathroom/toilet windows NEVER face the front (road) side.
 10. Verandas: up to 2 bedrooms get a veranda each (if fewer than 2 bedrooms, every bedroom gets one), and the kitchen has a veranda. Each veranda is separate — two verandas never connect/touch. Veranda width 3 to 5 ft; length at least 3 ft and never longer than its room's wall.
@@ -83,7 +83,10 @@ Authoritative design input, added Oct 29. The app must check every plan against 
 - Kitchen gets one extra door to its own veranda (only exception to the dining-only rule).
 - Bathrooms are never placed on the front wall; unavoidable cases are reported as violations.
 - Verandas: up to 2 bedrooms get one each (all bedrooms if fewer than 2), plus the kitchen.
-- Attached baths are attempted for all bedrooms (reported score); only the common-bathroom check blocks.
+- Toilets: client enters 1 to bedrooms + 1 (no default, required); exactly 1 common, rest attached master-first (replaces the old attached-attempt rule).
+- Area budget: buildable = plot minus setbacks; program = rooms + wall estimates (10 in exterior, 5 in interior); AI shrinks rooms once to fit, else a clear warning shows.
+- Room features: wishes that are not separate rooms live in each room's "features" list for the drawing step.
+- Display: all dimensions in feet and inches (14'-0", 3'-6"); areas in sq ft.
 - "Bedroom door impossible into family living" = no shared wall length left for a 3 ft door; fallback to dining, reported per bedroom.
 - Cross ventilation proxy: openings on 2+ walls, opposite preferred, adjacent minimum.
 - Non-rectangular outline: porch + separate verandas break the outline; check passes if outline has more than 4 corners.
@@ -143,6 +146,7 @@ Docs portal: `https://dev.meta.ai/docs/` (quickstart + models pages). The API is
 Update this list as we go (each item: date + one line).
 
 - [x] Oct 29: Brief → room program with Muse Spark (requirements.txt, ai_program.py, app.py, .env.example).
+- [x] Oct 29 (update): area budget, room features, feet-inch display, toilet rule.
 - [ ] Oct 30: `layout.py` — placement + rule checks working.
 - [ ] Oct 31: `draw.py` — SVG plan rendering.
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).

@@ -3,13 +3,15 @@
 #
 # What this file does:
 #   1. Sends the user's brief to Muse Spark on the Meta Model API.
-#   2. Gets back structured JSON: a list of rooms + a short design explanation.
-#   3. Checks every room size against our size rules in plain Python.
+#   2. Gets back structured JSON: rooms + design explanation.
+#   3. Checks room sizes, the toilet rule, and the area budget in plain Python.
+#   4. If the program is too big, asks the AI once to shrink rooms to fit.
 #
 # The API key is read from the META_API_KEY variable (see .env.example).
 # The key is NEVER written into any file by this code.
 
 import json
+import math
 import os
 
 from dotenv import load_dotenv
@@ -38,11 +40,102 @@ SIZE_RULES = {
 }
 
 # Corridors are long and thin: only the narrow side is checked.
-CORRIDOR_MIN_WIDTH_FT = 3.5  # 3 ft 6 in
+CORRIDOR_MIN_WIDTH_FT = 3.5  # 3'-6"
 
-# Room types whose sizes are not fixed yet (see PROJECT.md).
-# We skip the size check for these instead of guessing.
-UNCHECKED_TYPES = {"porch", "foyer", "veranda", "corridor"}
+# --- Setbacks and walls (defaults from PROJECT.md) ---
+SETBACK_FRONT_FT = 6
+SETBACK_SIDE_FT = 1.5
+SETBACK_BACK_FT = 4
+WALL_EXT_FT = 10 / 12  # 10 in exterior walls
+WALL_INT_FT = 5 / 12  # 5 in interior walls
+
+# Rooms where a common toilet door may open (reachable without a bedroom).
+COMMON_SPACES = ("dining", "family living", "corridor")
+
+
+def format_ft_in(feet):
+    """Show a dimension in feet and inches: 14 -> 14'-0", 3.5 -> 3'-6".
+
+    Rounds to the nearest inch. Returns "?" when the number is missing.
+    """
+    if feet is None:
+        return "?"
+    try:
+        total_inches = int(round(float(feet) * 12))
+    except (TypeError, ValueError):
+        return "?"
+    ft = total_inches // 12
+    inch = total_inches % 12
+    return f"{ft}'-{inch}\""
+
+
+def calculate_buildable_area(plot_width, plot_depth, road_side):
+    """Plot minus setbacks = the rectangle the house must fit inside.
+
+    Front (6 ft) + back (4 ft) come off one direction, sides
+    (1.5 ft each) off the other. Which direction depends on the road:
+    North/South road -> front/back along depth; East/West -> along width.
+    Returns a dict with width, depth, and area in sq ft.
+    """
+    road = str(road_side or "").strip().lower()
+    if road in ("east", "e", "west", "w"):
+        # Road on the side: front/back setbacks eat into the width.
+        buildable_width = plot_width - SETBACK_FRONT_FT - SETBACK_BACK_FT
+        buildable_depth = plot_depth - SETBACK_SIDE_FT * 2
+    else:
+        # Road at North or South (the usual case): setbacks eat into depth.
+        buildable_width = plot_width - SETBACK_SIDE_FT * 2
+        buildable_depth = plot_depth - SETBACK_FRONT_FT - SETBACK_BACK_FT
+    # A tiny plot can leave nothing (or less); clamp at zero, never negative.
+    buildable_width = max(0, buildable_width)
+    buildable_depth = max(0, buildable_depth)
+    return {
+        "width": buildable_width,
+        "depth": buildable_depth,
+        "area": buildable_width * buildable_depth,
+    }
+
+
+def calculate_program_area(rooms):
+    """Add up room areas + wall thickness so we can compare to buildable.
+
+    Simple estimates, explained so a non-programmer can follow:
+    - net: sum of every room's width x depth (corridors included).
+    - circulation: the corridor part of net (shown for info, not added twice).
+    - interior walls: each room adds about one average-length wall, 5 in thick.
+    - exterior walls: walls wrap the house; we guess the perimeter by
+      pretending the house (net + interior walls) is a square.
+    - total: net + interior + exterior. Compare this to buildable area.
+    """
+    net = 0.0
+    circulation = 0.0
+    interior = 0.0
+    for room in rooms or []:
+        width = room.get("width_ft")
+        depth = room.get("depth_ft")
+        if width is None or depth is None:
+            continue
+        area = float(width) * float(depth)
+        net += area
+        room_type = str(room.get("type", "")).strip().lower()
+        if room_type == "corridor":
+            circulation += area
+        # One average side of interior wall (5 in thick) per room.
+        interior += ((float(width) + float(depth)) / 2) * WALL_INT_FT
+    # Exterior: perimeter of a square with the same area, times 10 in thick.
+    footprint = net + interior
+    if footprint > 0:
+        side = math.sqrt(footprint)
+        exterior = 4 * side * WALL_EXT_FT
+    else:
+        exterior = 0.0
+    return {
+        "net": net,
+        "circulation": circulation,
+        "interior_walls": interior,
+        "exterior_walls": exterior,
+        "total": net + interior + exterior,
+    }
 
 
 # --- System prompt: architect role + design rules + JSON shape ---
@@ -67,7 +160,7 @@ HARD RULES (follow all of them):
 4. Kitchen has exactly one inner door, into dining. One extra door to its own veranda is allowed.
 5. Every bedroom door opens into family living. Only if there is no shared wall left for a 3 ft door, it may open into dining. NEVER into the living room.
 6. Every bedroom has at least 1 window (2 preferred).
-7. Try one attached bathroom per bedroom. There MUST be at least one common bathroom with a door to common space (dining, family living, or corridor), reachable without passing through any bedroom.
+7. TOILETS (client enters the count): return EXACTLY that many bathrooms. Exactly 1 is COMMON (door to dining, family living, or corridor; reachable without passing through any bedroom). All others are ATTACHED: master (largest) bedroom first, then next largest bedrooms, one each. 1-bedroom home: the single toilet is common; a 2nd toilet attaches to the master.
 8. Bathrooms touch an exterior wall for ventilation. Never on the front (road) wall.
 9. Bathroom windows NEVER face the front (road) side.
 10. Verandas: up to 2 bedrooms get one veranda each (every bedroom if fewer than 2), plus the kitchen gets one. Verandas never touch each other. Width 3 to 5 ft, length at least 3 ft, never longer than its room's wall.
@@ -78,7 +171,7 @@ ZONING (road side inward): porch and foyer first, then living room (public); the
 
 ORIENTATION (tropical monsoon climate): bedrooms and living prefer windows facing south/southeast (breeze); avoid large west-facing openings in bedrooms and living (afternoon heat); kitchen prefers the WEST side.
 
-BATHROOMS: derive the count from the rules above (attached attempt + one common). The user does not enter it.
+FEATURES: wishes that are not separate rooms (study nook, outdoor sitting, prayer corner) go in that room's "features" list so they are recorded for the drawing step.
 
 REPLY FORMAT: reply with JSON only, exactly this shape, no extra text:
 {
@@ -91,43 +184,72 @@ REPLY FORMAT: reply with JSON only, exactly this shape, no extra text:
       "adjacencies": ["Family Living"],
       "door_opens_into": "Family Living",
       "needs_veranda": true,
-      "preferred_orientation": "south"
+      "preferred_orientation": "south",
+      "features": []
+    },
+    {
+      "name": "Common Toilet",
+      "type": "bathroom",
+      "width_ft": 7,
+      "depth_ft": 8,
+      "adjacencies": ["Dining"],
+      "door_opens_into": "Dining",
+      "needs_veranda": false,
+      "preferred_orientation": "north",
+      "features": [],
+      "bathroom_kind": "common",
+      "attached_to": ""
     }
   ],
   "design_explanation": "Two or three short sentences in an architect's voice: why this room list fits the brief, climate, and zoning."
 }
-Use one of these types per room: bedroom, kitchen, living room, family living, dining, bathroom, corridor, porch, foyer, veranda.
+Types: bedroom, kitchen, living room, family living, dining, bathroom, corridor, porch, foyer, veranda.
+Bathrooms MUST set "bathroom_kind" to "common" or "attached"; attached ones MUST name their bedroom in "attached_to".
 Keep widths and depths as whole or half feet (for example 10, 10.5, 12).
+Keep the whole program (rooms + walls) inside the buildable area the user message gives you.
 """
 
 
-def _build_user_message(plot_width, plot_depth, road_side, num_bedrooms, wishes):
+def _build_user_message(plot_width, plot_depth, road_side, num_bedrooms,
+                         num_toilets, wishes, buildable):
     """Turn the form inputs into one short message for the AI."""
     wishes = (wishes or "").strip() or "No extra wishes."
     return (
         f"Plot: {plot_width} ft wide x {plot_depth} ft deep. "
         f"Road side: {road_side}. "
         f"Bedrooms wanted: {num_bedrooms}. "
+        f"Toilets wanted: {num_toilets} (exactly 1 common, rest attached). "
+        f"Buildable area after setbacks: {buildable['area']:.0f} sq ft "
+        f"({buildable['width']:.1f} x {buildable['depth']:.1f} ft). "
         f"Family wishes: {wishes} "
         f"Return the room program JSON now."
     )
 
 
-def _ask_model(client, system_prompt, user_message):
+def _build_revision_message(program_area, buildable):
+    """Short follow-up asking the AI to shrink rooms so the program fits."""
+    return (
+        f"Your program needs about {program_area['total']:.0f} sq ft "
+        f"(rooms + walls) but the buildable area is only "
+        f"{buildable['area']:.0f} sq ft. Revise the SAME room list with "
+        f"smaller widths/depths that still obey every size rule "
+        f"(both sides in range, never square). Return the full JSON again."
+    )
+
+
+def _ask_model(client, system_prompt, messages):
     """Ask Muse Spark and return the raw JSON text.
 
     We try the Responses API first (the current default), then fall
     back to Chat Completions if a library only supports that.
     Both calls request structured JSON output so the reply parses.
+    `messages` is a list of {"role": ..., "content": ...} dicts.
     """
     # Attempt 1: Responses API with JSON output.
     try:
         response = client.responses.create(
             model=MODEL_NAME,
-            input=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            input=messages,
             text={"format": {"type": "json_object"}},
         )
         return response.output_text
@@ -136,8 +258,7 @@ def _ask_model(client, system_prompt, user_message):
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": m["role"], "content": m["content"]} for m in messages
             ],
             response_format={"type": "json_object"},
         )
@@ -151,6 +272,7 @@ def check_room_sizes(rooms):
     Checks: both sides inside the type's range, never square
     (sides differ by at least 1 ft). Corridors only need min width.
     Porch, foyer, veranda sizes are not fixed yet, so they are skipped.
+    All dimensions are shown in feet and inches.
     """
     problems = []
 
@@ -172,8 +294,8 @@ def check_room_sizes(rooms):
             narrow = min(width, depth)
             if narrow < CORRIDOR_MIN_WIDTH_FT:
                 problems.append(
-                    f"{name}: corridor is {narrow} ft wide, "
-                    f"minimum is {CORRIDOR_MIN_WIDTH_FT} ft."
+                    f"{name}: corridor is {format_ft_in(narrow)} wide, "
+                    f"minimum is {format_ft_in(CORRIDOR_MIN_WIDTH_FT)}."
                 )
             continue
 
@@ -191,30 +313,135 @@ def check_room_sizes(rooms):
         low, high = SIZE_RULES[room_type]
         if not (low <= width <= high):
             problems.append(
-                f"{name}: width {width} ft is outside {low}-{high} ft."
+                f"{name}: width {format_ft_in(width)} is outside "
+                f"{format_ft_in(low)}-{format_ft_in(high)}."
             )
         if not (low <= depth <= high):
             problems.append(
-                f"{name}: depth {depth} ft is outside {low}-{high} ft."
+                f"{name}: depth {format_ft_in(depth)} is outside "
+                f"{format_ft_in(low)}-{format_ft_in(high)}."
             )
 
         # Never square: sides must differ by at least 1 ft.
         if abs(width - depth) < 1:
             problems.append(
-                f"{name}: {width} x {depth} ft is square-ish; "
-                "sides must differ by at least 1 ft."
+                f"{name}: {format_ft_in(width)} x {format_ft_in(depth)} "
+                "is square-ish; sides must differ by at least 1 ft."
             )
 
     return problems
 
 
-def get_room_program(plot_width, plot_depth, road_side, num_bedrooms, wishes):
-    """Send the brief to Muse Spark; return rooms + explanation + size check.
+def check_toilets(rooms, num_toilets):
+    """Check the new toilet rule in plain Python (HARD rule).
 
-    Returns a dict with three keys:
-      "rooms": list of room dicts (name, type, width_ft, depth_ft, ...),
+    Rule: EXACTLY num_toilets bathrooms; exactly 1 is COMMON (door to
+    dining/family living/corridor); the rest are ATTACHED, master
+    (largest) bedroom first, then next largest, one each.
+    Returns a list of problem strings; empty means the rule passes.
+    """
+    problems = []
+    bathrooms = [
+        r for r in (rooms or [])
+        if str(r.get("type", "")).strip().lower() == "bathroom"
+    ]
+    bedrooms = [
+        r for r in (rooms or [])
+        if str(r.get("type", "")).strip().lower() == "bedroom"
+    ]
+
+    # Count must match what the client entered.
+    if len(bathrooms) != num_toilets:
+        problems.append(
+            f"Toilet count: wanted {num_toilets}, program has {len(bathrooms)}."
+        )
+
+    # Split into common vs attached by the AI's bathroom_kind label.
+    common = [
+        b for b in bathrooms
+        if str(b.get("bathroom_kind", "")).strip().lower() == "common"
+    ]
+    attached = [
+        b for b in bathrooms
+        if str(b.get("bathroom_kind", "")).strip().lower() == "attached"
+    ]
+    unlabeled = [b for b in bathrooms if b not in common and b not in attached]
+    for bath in unlabeled:
+        problems.append(
+            f"{bath.get('name', '?')}: set bathroom_kind to "
+            "'common' or 'attached'."
+        )
+
+    # Exactly 1 common toilet, with a door to common space.
+    if len(common) != 1:
+        problems.append(
+            f"Common toilets: wanted exactly 1, program has {len(common)}."
+        )
+    for bath in common:
+        door = str(bath.get("door_opens_into", "")).strip().lower()
+        if door not in COMMON_SPACES:
+            problems.append(
+                f"{bath.get('name', '?')}: common toilet door opens into "
+                f"'{bath.get('door_opens_into', '?')}'; must open into "
+                "dining, family living, or corridor."
+            )
+
+    # Attached toilets: master first, then next largest bedrooms.
+    # Master = largest bedroom by area (width x depth).
+    def _area(room):
+        try:
+            return float(room.get("width_ft", 0)) * float(room.get("depth_ft", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    bedrooms_by_size = sorted(bedrooms, key=_area, reverse=True)
+    expected = [b.get("name", "") for b in bedrooms_by_size[:max(0, num_toilets - 1)]]
+    seen = []
+    for bath in attached:
+        target = str(bath.get("attached_to", "")).strip()
+        if not target:
+            problems.append(
+                f"{bath.get('name', '?')}: attached toilet must name "
+                "its bedroom in 'attached_to'."
+            )
+            continue
+        if target in seen:
+            problems.append(
+                f"{bath.get('name', '?')}: bedroom '{target}' already "
+                "has an attached toilet."
+            )
+        seen.append(target)
+        if target not in expected:
+            problems.append(
+                f"{bath.get('name', '?')}: attached to '{target}'; "
+                f"expected attached bedrooms in order: {', '.join(expected) or 'none'}."
+            )
+    # Every expected bedroom should have exactly one attached toilet.
+    for name in expected:
+        if name not in seen:
+            problems.append(
+                f"Bedroom '{name}' should have an attached toilet (largest-first order)."
+            )
+
+    return problems
+
+
+def get_room_program(plot_width, plot_depth, road_side, num_bedrooms,
+                     num_toilets, wishes):
+    """Send the brief to Muse Spark; return rooms + checks + area budget.
+
+    Returns a dict with:
+      "rooms": list of room dicts (name, type, width_ft, depth_ft,
+        adjacencies, door_opens_into, needs_veranda,
+        preferred_orientation, features, + bathroom_kind/attached_to
+        for bathrooms),
       "design_explanation": short paragraph in an architect's voice,
-      "size_problems": list of strings from check_room_sizes().
+      "size_problems": list from check_room_sizes(),
+      "toilet_problems": list from check_toilets(),
+      "buildable": dict from calculate_buildable_area(),
+      "program_area": dict from calculate_program_area(),
+      "revised": True if we asked the AI to shrink rooms to fit,
+      "area_warning": "" when it fits, else a clear warning string.
     """
     # Read the key. The user creates .env themselves; we never ask for it.
     api_key = os.getenv("META_API_KEY")
@@ -227,22 +454,58 @@ def get_room_program(plot_width, plot_depth, road_side, num_bedrooms, wishes):
     # Connect to the Meta Model API (OpenAI-compatible client).
     client = OpenAI(api_key=api_key, base_url=BASE_URL)
 
-    # Build the brief message and ask the model for JSON.
-    user_message = _build_user_message(
-        plot_width, plot_depth, road_side, num_bedrooms, wishes
-    )
-    json_text = _ask_model(client, SYSTEM_PROMPT, user_message)
+    # Buildable area first, so the AI knows its budget.
+    buildable = calculate_buildable_area(plot_width, plot_depth, road_side)
 
-    # Parse the JSON reply.
-    program = json.loads(json_text)
+    # First ask: full brief -> room program JSON.
+    user_message = _build_user_message(
+        plot_width, plot_depth, road_side, num_bedrooms,
+        num_toilets, wishes, buildable
+    )
+    program = json.loads(_ask_model(client, SYSTEM_PROMPT, [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]))
     rooms = program.get("rooms", [])
     explanation = program.get("design_explanation", "")
+    program_area = calculate_program_area(rooms)
+    revised = False
 
-    # Check sizes in plain Python (no AI): list any problems.
+    # Area budget: if too big, ask once to shrink within the size rules.
+    if program_area["total"] > buildable["area"]:
+        revised = True
+        program = json.loads(_ask_model(client, SYSTEM_PROMPT, [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": json.dumps(program)},
+            {"role": "user", "content": _build_revision_message(program_area, buildable)},
+        ]))
+        rooms = program.get("rooms", [])
+        explanation = program.get("design_explanation", "")
+        program_area = calculate_program_area(rooms)
+
+    # Clear warning when it still cannot fit.
+    area_warning = ""
+    if program_area["total"] > buildable["area"]:
+        over = program_area["total"] - buildable["area"]
+        area_warning = (
+            f"Program needs about {program_area['total']:.0f} sq ft "
+            f"(rooms + walls) but the buildable area is only "
+            f"{buildable['area']:.0f} sq ft -- over by {over:.0f} sq ft "
+            f"even after shrinking. Try fewer rooms or a bigger plot."
+        )
+
+    # Plain-Python checks (no AI): sizes + toilet rule.
     size_problems = check_room_sizes(rooms)
+    toilet_problems = check_toilets(rooms, num_toilets)
 
     return {
         "rooms": rooms,
         "design_explanation": explanation,
         "size_problems": size_problems,
+        "toilet_problems": toilet_problems,
+        "buildable": buildable,
+        "program_area": program_area,
+        "revised": revised,
+        "area_warning": area_warning,
     }
