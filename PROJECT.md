@@ -142,7 +142,7 @@ Docs portal: `https://dev.meta.ai/docs/` (quickstart + models pages). The API is
 
 Update this list as we go (each item: date + one line).
 
-- [ ] Oct 29: PROJECT.md created; API key tested; room-program JSON format fixed.
+- [x] Oct 29: Brief → room program with Muse Spark (requirements.txt, ai_program.py, app.py, .env.example).
 - [ ] Oct 30: `layout.py` — placement + rule checks working.
 - [ ] Oct 31: `draw.py` — SVG plan rendering.
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).

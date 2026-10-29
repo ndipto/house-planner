@@ -1,0 +1,14 @@
+# House Planner - Python packages needed.
+# Install once with: pip install -r requirements.txt
+# Keep this list short: UI + .env loading + Meta Model API client.
+
+# Web UI (free hosting on Streamlit Community Cloud).
+streamlit
+
+# Loads META_API_KEY from the local .env file.
+python-dotenv
+
+# Talks to the Meta Model API. The API is OpenAI-compatible,
+# so we use the standard OpenAI client and just change the base URL.
+# (No Meta-published Python SDK to install, per PROJECT.md.)
+openai
