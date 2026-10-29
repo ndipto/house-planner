@@ -57,11 +57,13 @@ RELAXED_RANGES = {"family living": (10, 15), "living room": (12, 17)}
 # Tiny tolerance for float comparisons.
 EPS = 1e-6
 
-# Which local side is WEST (for the kitchen-west preference). Standing at the
-# road looking inward, x grows to the viewer's right, so: road South -> west
-# is low x; road North -> west is high x. For East/West roads west points
-# front/back, so no strip side is "west" (N/A, reported).
-WEST_SIDE = {"south": "low-x", "north": "high-x", "east": "n/a", "west": "n/a"}
+# North direction (degrees clockwise from "north away from the road"):
+# 0 = road South, 90 = road East, 180 = road North, 270 = road West.
+# Angled plots use any value; orientation picks the closest plot side.
+NORTH_ANGLE = {"south": 0.0, "east": 90.0, "north": 180.0, "west": 270.0}
+
+# Local sides, tie-break order for closest-side picks (strips first).
+SIDE_ORDER = ("lowx", "highx", "front", "back")
 
 # Short labels for tiny rooms in the drawing.
 SHORT_NAMES = {
@@ -588,10 +590,61 @@ def livability_verdict(rules):
     return (not failed, failed)
 
 
-def _compass_west_wall(road_side):
-    """Local wall facing compass west (local x runs road-parallel)."""
-    return {"south": "W", "north": "E", "east": "N", "west": "S"}.get(
-        road_side, "W")
+def _normalize_angle(value):
+    """North direction in [0, 360): number as-is, cardinal word mapped."""
+    try:
+        return float(value) % 360.0
+    except (TypeError, ValueError):
+        return NORTH_ANGLE.get(str(value or "").strip().lower(), 0.0)
+
+
+def _resolve_angle(road_side, north_angle):
+    """Explicit angle wins, else the road side's cardinal angle."""
+    if north_angle is None:
+        return _normalize_angle(road_side)
+    return _normalize_angle(north_angle)
+
+
+def _side_bearings(north_angle):
+    """Compass bearing of each local side (front = road side)."""
+    theta = _normalize_angle(north_angle)
+    return {"lowx": (270.0 - theta) % 360.0,
+            "highx": (90.0 - theta) % 360.0,
+            "front": (180.0 - theta) % 360.0,
+            "back": (0.0 - theta) % 360.0}
+
+
+def _angular_dist(first, second):
+    """Smallest angle between two bearings (0-180)."""
+    return min((first - second) % 360.0, (second - first) % 360.0)
+
+
+def _closest_side(north_angle, bearing):
+    """Local side closest to a compass bearing (ties: strips first)."""
+    bearings = _side_bearings(north_angle)
+    return min(SIDE_ORDER,
+               key=lambda side: (_angular_dist(bearings[side], bearing),
+                                 SIDE_ORDER.index(side)))
+
+
+def _bearing_name(bearing):
+    """Closest cardinal name (N/E/S/W) for a bearing."""
+    names = ((0.0, "North"), (90.0, "East"), (180.0, "South"),
+             (270.0, "West"))
+    return min(names, key=lambda item: (_angular_dist(item[0], bearing),
+                                        item[0]))[1]
+
+
+def _closest_road(north_angle):
+    """Road side word (north/south/east/west) for a north angle."""
+    return _bearing_name(
+        _side_bearings(north_angle)["front"]).lower()
+
+
+def _compass_west_wall(north_angle):
+    """Local wall facing compass west (closest side to 270)."""
+    return {"lowx": "W", "highx": "E", "front": "S", "back": "N"}[
+        _closest_side(north_angle, 270.0)]
 
 
 def _room_blockers(rects, rect):
@@ -666,7 +719,8 @@ def _route_crosses(path, rects):
 
 # --- Rule checker: all 12 hard rules + geometry + design goals ---
 
-def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
+def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
+               north_angle=None):
     """Check one placed plan. Returns (rules, goals, quality).
 
     rules: [{id, name, status, detail}] with status PASS/BEND/FAIL/PENDING.
@@ -867,7 +921,8 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
                        "; ".join(geo_problems) if geo_problems
                        else "all %d rooms inside, no overlaps" % len(rects)))
 
-    rules.extend(_check_livability(rects, road_side))
+    angle = _resolve_angle(road_side, north_angle)
+    rules.extend(_check_livability(rects, angle))
 
     # Rule 18: toilet real sizes (per-side ranges, master bounds).
     bath_problems = []
@@ -913,18 +968,22 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
                        "back garden %.1f ft deep" % back_margin
                        if back_margin >= 0 else "house overflows by %.1f ft"
                        % -back_margin))
-    west = WEST_SIDE.get(road_side, "n/a")
-    if west == "n/a" or not kitchens:
+    west_side = _closest_side(angle, 270.0)
+    if not kitchens:
         goals.append(_goal("Kitchen west (among dining/family)", "N/A",
-                           "west points front/back" if west == "n/a"
-                           else "no kitchen in plan"))
+                           "no kitchen in plan"))
         west_met = None
     else:
         mid_types = ("kitchen", "dining", "family living")
         mid = [r for r in rects if r["type"] in mid_types]
-        centers = sorted(r["x"] + r["w"] / 2 for r in mid)
-        kitchen_c = kitchens[0]["x"] + kitchens[0]["w"] / 2
-        at_west = (kitchen_c <= centers[0] + 0.01) if west == "low-x" \
+        if west_side in ("lowx", "highx"):
+            centers = sorted(r["x"] + r["w"] / 2 for r in mid)
+            kitchen_c = kitchens[0]["x"] + kitchens[0]["w"] / 2
+        else:
+            centers = sorted(r["y"] + r["d"] / 2 for r in mid)
+            kitchen_c = kitchens[0]["y"] + kitchens[0]["d"] / 2
+        at_west = (kitchen_c <= centers[0] + 0.01) \
+            if west_side in ("lowx", "front") \
             else (kitchen_c >= centers[-1] - 0.01)
         goals.append(_goal("Kitchen west (among dining/family)",
                            "MET" if at_west else "MISSED",
@@ -940,9 +999,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets):
     return rules, goals, quality
 
 
-def _check_livability(rects, road_side):
+def _check_livability(rects, north_angle):
     """Strict rules 13-17 rows (13-16 decide UNLIVABLE; 17 reported)."""
-    return [_check_kitchen_exterior(rects, road_side),
+    return [_check_kitchen_exterior(rects, north_angle),
             _check_bedroom_walls(rects),
             _check_toilet_exterior(rects),
             _check_circulation(rects),
@@ -966,7 +1025,7 @@ def _shared_wall_and_span(host, other):
     return None, 0.0, 0.0
 
 
-def _check_kitchen_exterior(rects, road_side):
+def _check_kitchen_exterior(rects, north_angle):
     """Rule 13: kitchen exterior wall (west preferred) + veranda on it."""
     kitchens = [r for r in rects if r["type"] == "kitchen"]
     if not kitchens:
@@ -975,7 +1034,7 @@ def _check_kitchen_exterior(rects, road_side):
     kitchen = kitchens[0]
     runs = _wall_runs(kitchen, rects)
     longest, wall = _longest_run(runs)
-    west = _compass_west_wall(road_side)
+    west = _compass_west_wall(north_angle)
     west_best = max([end - start for start, end in runs[west]] or [0.0])
     problems, notes = [], []
     if longest < KITCHEN_MIN_EXTERIOR_FT - EPS:

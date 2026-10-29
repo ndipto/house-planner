@@ -17,7 +17,7 @@ from ai_program import (
     TOILET_D_RANGE,
     TOILET_W_RANGE,
 )
-from draw import svg_plan
+from draw import svg_plan, svg_plot_preview
 from layout import RELAXED_RANGES, _check_all, livability_verdict
 from typology import build_options
 
@@ -151,7 +151,8 @@ def _svg_for(option, plot):
     """Adapt one option to the svg_plan() plan shape (mirrors the app)."""
     return {"ok": True, "placements": option["placements"],
             "plot": {"w": plot["width"], "d": plot["depth"],
-                     "road": plot["road"]}}
+                     "road": plot["road"],
+                     "north_angle": plot.get("north_angle", 0)}}
 
 
 def _center_x(placements, name):
@@ -495,6 +496,73 @@ def test_front_facing_master():
     print("PASS test_front_facing_master (front-most x3)")
 
 
+def _arrow_spins(svg_text):
+    """Rotate angles on the north-needle polygons in an SVG string."""
+    root = ET.fromstring(svg_text)
+    ns = "{http://www.w3.org/2000/svg}"
+    spins = []
+    for poly in root.iter("%spolygon" % ns):
+        transform = poly.get("transform", "")
+        if transform.startswith("rotate("):
+            spins.append(transform.split(" ")[0][len("rotate("):])
+    return spins
+
+
+def test_preview_north_angles():
+    """Preview at 0/90/30 deg: to scale, ROAD + dims + turning arrow."""
+    for angle, spin in ((0, []), (90, ["90"]), (30, ["30"])):
+        root = ET.fromstring(svg_plot_preview(40, 60, angle))
+        ns = "{http://www.w3.org/2000/svg}"
+        plot = root.find("%srect[@stroke-width='3']" % ns)
+        ratio = float(plot.get("width")) / float(plot.get("height"))
+        assert abs(ratio - 40 / 60) < 0.01, "preview to scale at %d" % angle
+        texts = [(t.text or "") for t in root.iter("%stext" % ns)]
+        assert "ROAD" in texts, "road band labeled at %d" % angle
+        assert any("frontage" in t and "40" in t for t in texts), \
+            "frontage dim at %d" % angle
+        assert any(t.startswith("60") and "deep" in t for t in texts), \
+            "depth dim at %d" % angle
+        assert any("north %d deg" % angle in t for t in texts), \
+            "angle caption at %d" % angle
+        assert _arrow_spins(svg_plot_preview(40, 60, angle)) == spin, \
+            "arrow turn at %d" % angle
+    print("PASS test_preview_north_angles (0/90/30 preview)")
+
+
+def test_angle_matches_cardinal():
+    """Cardinal angles equal the old road sides, placement for placement."""
+    for angle, road in ((0, "South"), (90, "East"), (180, "North"),
+                        (270, "West")):
+        angled = build_options(PROGRAM_2BED, 40, 60, road, 2, WISHES_EAST,
+                               angle)
+        plain = build_options(PROGRAM_2BED, 40, 60, road, 2, WISHES_EAST)
+        assert [o["label"] for o in angled["options"]] == ["A", "B", "C"]
+        for opt_a, opt_p in zip(angled["options"], plain["options"]):
+            assert _footprint(opt_a) == _footprint(opt_p), \
+                "angle %d matches road %s" % (angle, road)
+            assert opt_a["livable"] == opt_p["livable"]
+    print("PASS test_angle_matches_cardinal (0/90/180/270)")
+
+
+def test_angle_30_south_wish():
+    """North 30 deg + south master: front-most, livable, arrow at 30."""
+    result = build_options(PROGRAM_2BED, 45, 55, "south", 2,
+                           "south facing master bedroom", 30)
+    assert [o["label"] for o in result["options"]] == ["A", "B", "C"]
+    for opt in result["options"]:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        assert _rule_status(opt, "18") == "PASS", "real toilet sizes"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        assert _center_y(opt["placements"], "Bedroom 1") < \
+            _center_y(opt["placements"], "Bedroom 2"), \
+            "option %s: master front-most" % opt["label"]
+        svg = svg_plan(_svg_for(opt, result["plot"]))
+        ET.fromstring(svg)  # well-formed with the angle
+        assert _arrow_spins(svg) == ["30"], "plan arrow follows north"
+        assert "north 30 deg" in svg, "plan names the angle"
+    print("PASS test_angle_30_south_wish (front-most + arrow)")
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
@@ -503,6 +571,9 @@ if __name__ == "__main__":
     test_road_east_facing_master()
     test_front_facing_master()
     test_wide_shallow_bands()
+    test_preview_north_angles()
+    test_angle_matches_cardinal()
+    test_angle_30_south_wish()
     test_one_bedroom()
     test_narrow_two_strip()
     test_l_shape_wide()

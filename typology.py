@@ -46,11 +46,16 @@ from layout import (
     _add_verandas,
     _area_overlap,
     _as_rect,
+    _bearing_name,
     _branch_fill,
     _buckets,
     _by_name,
     _check_all,
+    _closest_road,
+    _closest_side,
     _porch_size,
+    _resolve_angle,
+    _side_bearings,
     _pref,
     _room_type,
     _round_half,
@@ -98,27 +103,24 @@ _FACING_PATTERNS = (
      r"(north|south|east|west)\b", False),
 )
 
-# Local frame -> compass (inputs are road-relative: front is the road side).
-_COMPASS_LOCAL = {
-    "south": {"front": "south", "back": "north",
-              "lowx": "west", "highx": "east"},
-    "north": {"front": "north", "back": "south",
-              "lowx": "east", "highx": "west"},
-    "east": {"front": "east", "back": "west",
-             "lowx": "south", "highx": "north"},
-    "west": {"front": "west", "back": "east",
-             "lowx": "north", "highx": "south"},
-}
+# Compass words -> bearings for facing wishes.
+_FACING_BEARINGS = {"north": 0.0, "east": 90.0, "south": 180.0,
+                    "west": 270.0}
 
 
-def _facing_target(compass, road):
-    """("strip", 0/1) or ("position", "front"/"back") for a compass wish."""
-    local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
-    if compass == local["lowx"]:
+def _facing_target(compass, north_angle):
+    """("strip", 0/1) or ("position", "front"/"back") for a compass wish.
+
+    Uses the real north angle: whichever local side is closest to the
+    wished direction wins.
+    """
+    side = _closest_side(north_angle,
+                         _FACING_BEARINGS.get(compass, 180.0))
+    if side == "lowx":
         return ("strip", 0)
-    if compass == local["highx"]:
+    if side == "highx":
         return ("strip", 1)
-    if compass == local["front"]:
+    if side == "front":
         return ("position", "front")
     return ("position", "back")
 
@@ -222,16 +224,17 @@ def _local_dims(frontage_ft, depth_ft):
     return plot_w, plot_d, build_w, build_d
 
 
-def _west_strip_index(road):
+def _west_strip_index(north_angle):
     """Strip index on the compass-west side (None: west runs front-back).
 
-    Viewer stands at the road looking inward, x to the right: road South
-    -> west is low x (strip 0); road North -> west is high x (strip 2).
-    On East/West roads west points front/back, so no strip is "west".
+    Uses the real north angle: when a side strip (low/high x) is the
+    closest side to west it wins (strip 0/2); when west points
+    front/back no strip is "west".
     """
-    if road == "south":
+    side = _closest_side(north_angle, 270.0)
+    if side == "lowx":
         return 0
-    if road == "north":
+    if side == "highx":
         return 2
     return None
 
@@ -366,7 +369,7 @@ def _valid_pairs(buckets, directives, notes):
 
 
 def _bed_facing_plan(beds, facing, road, notes, single_side=None,
-                     bands=False):
+                     bands=False, north_angle=None):
     """({bed_index: strip}, {bed_index: front/back}) from facing wishes.
 
     Only bedrooms move: a side wish (west/east on north/south roads)
@@ -378,6 +381,7 @@ def _bed_facing_plan(beds, facing, road, notes, single_side=None,
     """
     sides, positions, taken = {}, {}, set()
     band_placed = False
+    angle = _resolve_angle(road, north_angle)
     ordered = sorted(enumerate(facing),
                      key=lambda pair: (0 if bands and pair[1]["room"]
                                        == "bedroom" and pair[1]["master"]
@@ -413,7 +417,7 @@ def _bed_facing_plan(beds, facing, road, notes, single_side=None,
                          % wish["phrase"].strip())
             continue
         taken.add(index)
-        kind, value = _facing_target(wish["side"], road)
+        kind, value = _facing_target(wish["side"], angle)
         if bands:
             band_placed = True
             if kind != "strip":
@@ -442,10 +446,11 @@ def _bed_facing_plan(beds, facing, road, notes, single_side=None,
     return sides, positions
 
 
-def _front_wish(directives, road):
+def _front_wish(directives, road, north_angle=None):
     """True when a bedroom wish maps to the front end (rule-8 guard)."""
+    angle = _resolve_angle(road, north_angle)
     return any(wish["room"] == "bedroom"
-               and _facing_target(wish["side"], road) == ("position", "front")
+               and _facing_target(wish["side"], angle) == ("position", "front")
                for wish in directives["facing"])
 
 
@@ -464,7 +469,8 @@ def _relocate_block(side_list, bed_name, bath_names, to_front):
 
 
 def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
-                        directives, living_out, road, common_side=None):
+                        directives, living_out, road, common_side=None,
+                        north_angle=None):
     """Back-to-front slot lists ((west, east)) + valid pairs + merged flag.
 
     Master takes its back corner, second bedroom the other back corner,
@@ -487,7 +493,8 @@ def _assign_three_strip(buckets, kitchen_strip, master_strip, notes,
     living = buckets["living"][0] if buckets["living"] else None
     bath_of, loose_baths, common = _bath_map(buckets, notes)
     face_sides, face_positions = _bed_facing_plan(
-        beds, directives["facing"], road, notes)
+        beds, directives["facing"], road, notes,
+        north_angle=north_angle)
     valid_pairs = _valid_pairs(buckets, directives, notes)
     merge_lk = living_out and living is not None and kitchen is not None \
         and any("living room" in pair and "kitchen" in pair
@@ -878,7 +885,8 @@ def _verify_open_plan(rects, valid_pairs, notes):
 
 
 def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
-                 notes, directives, road, common_side=None):
+                 notes, directives, road, common_side=None,
+                 north_angle=None):
     """One three-strip option in buildable coords (rects, info, meta).
 
     Raises _Infeasible (geometry is hard) instead of placing anything
@@ -899,8 +907,9 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
     spans = _spine_spans(spine)
     variants, valid_pairs, _merge_lk = _assign_three_strip(
         buckets, kitchen_strip, master_strip, notes, directives, living_out,
-        road, common_side)
-    base_min = y0 + 1.0 if _front_wish(directives, road) else 0.0
+        road, common_side, north_angle)
+    base_min = y0 + 1.0 \
+        if _front_wish(directives, road, north_angle) else 0.0
     best, tried_all = None, tried
     for order in variants:
         living_side = None
@@ -961,7 +970,7 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
 
 
 def _assign_two_strip(buckets, notes, kitchen_first, directives,
-                      living_out, road, single_side):
+                      living_out, road, single_side, north_angle=None):
     """Single side-strip order, back to front (narrow plots).
 
     Returns (slots, valid_pairs, merge_lk). The living room (when out of
@@ -975,7 +984,8 @@ def _assign_two_strip(buckets, notes, kitchen_first, directives,
     living = buckets["living"][0] if buckets["living"] else None
     bath_of, loose, common = _bath_map(buckets, notes)
     _face_sides, face_positions = _bed_facing_plan(
-        beds, directives["facing"], road, notes, single_side)
+        beds, directives["facing"], road, notes, single_side,
+        north_angle=north_angle)
     valid_pairs = _valid_pairs(buckets, directives, notes)
     merge_lk = living_out and living is not None and kitchen is not None \
         and any("living room" in pair and "kitchen" in pair
@@ -1024,7 +1034,7 @@ def _assign_two_strip(buckets, notes, kitchen_first, directives,
 
 
 def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
-               notes, directives, road):
+               notes, directives, road, north_angle=None):
     """One two-strip option in buildable coords (rects, info, meta).
 
     Raises _Infeasible (geometry is hard) instead of placing anything
@@ -1047,10 +1057,11 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
     spans = _spine_spans(spine)
     slots, valid_pairs, _merge_lk = _assign_two_strip(
         buckets, notes, kitchen_first, directives, living_out, road,
-        0 if side_west else 1)
+        0 if side_west else 1, north_angle)
     has_living = any(kind == "living" for kind, _r, _e in slots)
     garden_ok = True
-    base_min = y0 + 1.0 if _front_wish(directives, road) else 0.0
+    base_min = y0 + 1.0 \
+        if _front_wish(directives, road, north_angle) else 0.0
     stacked = _stack_side(slots, side_x, side_w, build_d, spans, notes,
                           outer_east=not side_west, min_bottom=base_min)
     if directives["garden"] and has_living:
@@ -1203,7 +1214,7 @@ def _back_widths(back_cells, total, back_d, spans, x0, mirror,
 
 
 def _wide_bands(buckets, build_w, build_d, notes, directives, road,
-                variant):
+                variant, north_angle=None):
     """Shallow two-band option for wide plots (rects, info, meta).
 
     Front band (12 ft): foyer, living, dining, kitchen side by side.
@@ -1244,7 +1255,8 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
     master_name = beds[0]["name"]
     bath_of, loose, common = _bath_map(buckets, notes)
     _face_sides, _face_pos = _bed_facing_plan(
-        beds, directives["facing"], road, notes, bands=True)
+        beds, directives["facing"], road, notes, bands=True,
+        north_angle=north_angle)
     wished = _face_sides.get(0)
     bed_seq = list(beds)
     if wished is not None and (wished == 1) == (not mirror):
@@ -1530,10 +1542,10 @@ def _try_l_shape(buckets, build_w, build_d, notes, directives):
 
 
 def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
-                   num_toilets, notes):
+                   num_toilets, notes, north_angle=None):
     """Check, score and shift one option to plot-local coordinates."""
     rules, goals, quality = _check_all(rects, info, build_w, build_d, road,
-                                       num_toilets)
+                                       num_toilets, north_angle)
     score = _score(rules, goals, quality)
     livable, fails = livability_verdict(rules)
     shifted = []
@@ -1550,11 +1562,14 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
             "open_plan": list(meta.get("open_plan", []))}
 
 
-def _option_specs(buckets, build_w, build_d, road, directives):
+def _option_specs(buckets, build_w, build_d, road, directives,
+                  north_angle=None):
     """(label, title, builder) for A/B/C (builders take a notes list)."""
+    angle = _resolve_angle(road, north_angle)
+    bearings = _side_bearings(angle)
     if build_w < 30 - EPS:
-        local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
-        low_word, high_word = local["lowx"], local["highx"]
+        low_word = _bearing_name(bearings["lowx"]).lower()
+        high_word = _bearing_name(bearings["highx"]).lower()
 
         def _build_c_two(notes):
             if directives["combine"]:
@@ -1562,19 +1577,19 @@ def _option_specs(buckets, build_w, build_d, road, directives):
                              "the open plan).")
             plain = dict(directives, combine=[])
             return _two_strip(buckets, build_w, build_d, True, False, notes,
-                              plain, road)
+                              plain, road, angle)
 
         return [
             ("A", "Two-strip, rooms %s" % low_word,
              lambda n: _two_strip(buckets, build_w, build_d, True, True, n,
-                                  directives, road)),
+                                  directives, road, angle)),
             ("B", "Two-strip, rooms %s" % high_word,
              lambda n: _two_strip(buckets, build_w, build_d, False, True, n,
-                                  directives, road)),
+                                  directives, road, angle)),
             ("C", "Two-strip, rooms %s (alt order)" % low_word,
              _build_c_two),
         ]
-    west = _west_strip_index(road)
+    west = _west_strip_index(angle)
     kitchen_a = west if west is not None else 0
     west_word = "west" if west is not None else "road-left"
     east_word = "east" if west is not None else "road-right"
@@ -1590,7 +1605,7 @@ def _option_specs(buckets, build_w, build_d, road, directives):
                      "third three-strip variant instead.")
         strip_wish = any(
             wish["room"] == "bedroom"
-            and _facing_target(wish["side"], road)[0] == "strip"
+            and _facing_target(wish["side"], angle)[0] == "strip"
             for wish in directives["facing"])
         if strip_wish:
             # A strip wish can collapse A/C to the same strips; C puts
@@ -1598,20 +1613,22 @@ def _option_specs(buckets, build_w, build_d, road, directives):
             try:
                 return _three_strip(buckets, build_w, build_d, kitchen_a,
                                     kitchen_a, notes, directives, road,
-                                    0 if kitchen_a == 0 else 1)
+                                    0 if kitchen_a == 0 else 1, angle)
             except _Infeasible:
                 notes.append("Common-side variant does not fit; closest "
                              "variant kept.")
         return _three_strip(buckets, build_w, build_d, kitchen_a, kitchen_a,
-                            notes, directives, road)
+                            notes, directives, road, None, angle)
 
     return [
         ("A", "Three-strip, kitchen %s" % west_word,
          lambda n: _three_strip(buckets, build_w, build_d, kitchen_a,
-                                2 - kitchen_a, n, directives, road)),
+                                2 - kitchen_a, n, directives, road,
+                                None, angle)),
         ("B", "Three-strip, kitchen %s" % east_word,
          lambda n: _three_strip(buckets, build_w, build_d, 2 - kitchen_a,
-                                kitchen_a, n, directives, road)),
+                                kitchen_a, n, directives, road,
+                                None, angle)),
         ("C", "L-shape with court" if build_w >= 45 - EPS
          else "Three-strip, kitchen + master %s" % west_word,
          _build_c),
@@ -1619,17 +1636,21 @@ def _option_specs(buckets, build_w, build_d, road, directives):
 
 
 def build_options(program_rooms, frontage_ft, depth_ft, road_side,
-                  num_toilets, wishes=""):
+                  num_toilets, wishes="", north_angle=None):
     """Three typology options (A/B/C) for the brief, checked and scored.
 
     Frontage/depth are road-relative (frontage = road side). Wishes shape
     the layout (combined spaces, wished garden, room facing). Geometry
     is a hard constraint: an option that cannot fit inside the buildable
-    area is skipped with a clear reason, never drawn broken.
+    area is skipped with a clear reason, never drawn broken. Orientation
+    (kitchen west, facing wishes) uses the real north angle when given,
+    else the road side's cardinal angle.
     """
     road = (road_side or "south").lower()
+    angle = _resolve_angle(road, north_angle)
     plot_w, plot_d, build_w, build_d = _local_dims(frontage_ft, depth_ft)
-    result = {"plot": {"width": plot_w, "depth": plot_d, "road": road},
+    result = {"plot": {"width": plot_w, "depth": plot_d, "road": road,
+                       "north_angle": angle},
               "buildable": {"width": build_w, "depth": build_d},
               "options": [], "notes": []}
     if build_w <= 0 or build_d <= 0:
@@ -1640,11 +1661,15 @@ def build_options(program_rooms, frontage_ft, depth_ft, road_side,
     result["notes"].extend(bucket_notes)
     directives = _parse_wishes(wishes)
     result["notes"].extend(directives["notes"])
-    if build_w >= 30 - EPS and _west_strip_index(road) is None:
-        result["notes"].append("Compass west points front/back on east/west "
-                               "roads: Option A uses the road-left strip.")
+    if build_w >= 30 - EPS and _west_strip_index(angle) is None:
+        west_side = _closest_side(angle, 270.0)
+        toward = "toward the road" if west_side == "front" \
+            else "away from the road"
+        result["notes"].append("Compass west points %s (north %g deg): "
+                               "Option A uses the road-left strip."
+                               % (toward, angle))
     for label, title, builder in _option_specs(buckets, build_w, build_d,
-                                               road, directives):
+                                               road, directives, angle):
         notes = []
         try:
             rects, info, meta = builder(notes)
@@ -1656,32 +1681,35 @@ def build_options(program_rooms, frontage_ft, depth_ft, road_side,
             continue
         result["options"].append(_finish_option(
             rects, info, meta, label, title, build_w, build_d, road,
-            num_toilets, notes))
+            num_toilets, notes, angle))
     if not result["options"]:
         _try_wide_fallback(result, buckets, build_w, build_d, road,
-                           num_toilets, directives)
+                           num_toilets, directives, angle)
     return result
 
 
 def _try_wide_fallback(result, buckets, build_w, build_d, road,
-                       num_toilets, directives):
+                       num_toilets, directives, north_angle=None):
     """Shallow two-band options when no strip plan fits (wide plots)."""
+    angle = _resolve_angle(road, north_angle)
     depths_ok = 10 - EPS <= build_d - _y0_porch(buckets) - 12.0 <= 15 + EPS
     if build_w < 42 - EPS or not depths_ok:
         return
     result["notes"].append("Standard strips need more depth; trying the "
                            "shallow two-band plan.")
-    local = _COMPASS_LOCAL.get(road, _COMPASS_LOCAL["south"])
-    specs = (("A", "Shallow bands, kitchen %s" % local["lowx"], "low"),
-             ("B", "Shallow bands, kitchen %s" % local["highx"], "high"),
+    bearings = _side_bearings(angle)
+    low_word = _bearing_name(bearings["lowx"]).lower()
+    high_word = _bearing_name(bearings["highx"]).lower()
+    specs = (("A", "Shallow bands, kitchen %s" % low_word, "low"),
+             ("B", "Shallow bands, kitchen %s" % high_word, "high"),
              ("C", "Shallow bands, kitchen %s (dining mid)"
-              % local["lowx"], "split"))
+              % low_word, "split"))
     for label, title, variant in specs:
         notes = []
         try:
             rects, info, meta = _wide_bands(buckets, build_w, build_d,
                                             notes, directives, road,
-                                            variant)
+                                            variant, angle)
         except _Infeasible as exc:
             result["notes"].append("Option %s skipped: %s." % (label, exc))
             continue
@@ -1690,4 +1718,4 @@ def _try_wide_fallback(result, buckets, build_w, build_d, road,
             continue
         result["options"].append(_finish_option(
             rects, info, meta, label, title, build_w, build_d, road,
-            num_toilets, notes))
+            num_toilets, notes, angle))

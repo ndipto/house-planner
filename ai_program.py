@@ -215,13 +215,19 @@ Keep the whole program (rooms + walls) inside the buildable area the user messag
 
 
 def _build_user_message(frontage_ft, depth_ft, road_side, num_bedrooms,
-                         num_toilets, wishes, buildable):
+                         num_toilets, wishes, buildable, north_angle=None):
     """Turn the form inputs into one short message for the AI."""
     wishes = (wishes or "").strip() or "No extra wishes."
+    if north_angle is None:
+        direction = f"Road side: {road_side}. "
+    else:
+        direction = (f"North direction: {north_angle:g} deg (0 = north "
+                     f"points away from the road, clockwise). Road on "
+                     f"the {road_side} side. ")
     return (
         f"Plot: {frontage_ft} ft road frontage x {depth_ft} ft deep "
         f"from the road. "
-        f"Road side: {road_side}. "
+        + direction +
         f"Bedrooms wanted: {num_bedrooms}. "
         f"Toilets wanted: {num_toilets} (exactly 1 common, rest attached). "
         f"Buildable area after setbacks: {buildable['area']:.0f} sq ft "
@@ -482,7 +488,7 @@ def check_toilets(rooms, num_toilets):
 
 
 def get_room_program(frontage_ft, depth_ft, road_side, num_bedrooms,
-                     num_toilets, wishes):
+                     num_toilets, wishes, north_angle=None):
     """Send the brief to Muse Spark; return rooms + checks + area budget.
 
     Returns a dict with:
@@ -515,7 +521,7 @@ def get_room_program(frontage_ft, depth_ft, road_side, num_bedrooms,
     # First ask: full brief -> room program JSON.
     user_message = _build_user_message(
         frontage_ft, depth_ft, road_side, num_bedrooms,
-        num_toilets, wishes, buildable
+        num_toilets, wishes, buildable, north_angle
     )
     program = json.loads(_ask_model(client, SYSTEM_PROMPT, [
         {"role": "system", "content": SYSTEM_PROMPT},

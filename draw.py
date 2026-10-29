@@ -6,16 +6,18 @@
 # sizes (feet-inches) and areas, overall dimensions, north arrow, road label,
 # scale bar, and a concept-only note. Black lines on white, no bright colors.
 #
-# Orientation: the drawing is always NORTH-UP (standard architectural
-# convention). The local layout frame (x parallel to road, y from the road
-# inward) is rotated so the road lands on its real side:
+# Orientation: the drawing is rotated so the road lands on its real side
+# (closest cardinal for angled plots):
 #   road South -> road edge at the bottom, rooms upright;
 #   road North -> road edge at the top;
 #   road East  -> road edge on the right, plan rotated;
 #   road West  -> road edge on the left, plan rotated.
-# The road side is a compass direction, so it already implies where north is
-# (no separate north input needed); the arrow always points up.
+# The north arrow shows the real north angle (0 = north away from the road,
+# clockwise); it points straight up only when north is due up.
+# svg_plot_preview draws the bare plot (road at the bottom) for the live
+# preview beside the inputs.
 
+import math
 from xml.sax.saxutils import escape
 
 from ai_program import (
@@ -36,6 +38,13 @@ def svg_plan(result):
     plot_w = float(plot.get("w", 40))
     plot_d = float(plot.get("d", 60))
     rooms = result.get("placements", []) if result.get("ok") else []
+    base = {"south": 0.0, "east": 90.0, "north": 180.0, "west": 270.0}[road]
+    explicit_angle = "north_angle" in plot
+    try:
+        angle = float(plot.get("north_angle", base)) % 360.0
+    except (TypeError, ValueError):
+        angle = base
+    residual = ((angle - base + 180.0) % 360.0) - 180.0
 
     # Drawing size: fit the plot in ~800 px, margins for dims + labels.
     # The road side gets extra room for its ROAD label.
@@ -71,11 +80,16 @@ def svg_plan(result):
     # Title block (text only, top-left).
     parts.append('<text x="%d" y="26" font-size="20" font-weight="bold">%s</text>'
                  % (left, escape("House Planner - concept floor plan")))
+    if explicit_angle:
+        subtitle = "Plot %s x %s, road %s, north %g deg. " % (
+            format_ft_in(plot_w), format_ft_in(plot_d),
+            road.capitalize(), angle)
+    else:
+        subtitle = "Plot %s x %s, road %s (north up). " % (
+            format_ft_in(plot_w), format_ft_in(plot_d), road.capitalize())
     parts.append('<text x="%d" y="46" font-size="12">%s</text>'
-                 % (left, escape("Plot %s x %s, road %s (north up). "
-                                 "Concept only - not for construction."
-                                 % (format_ft_in(plot_w), format_ft_in(plot_d),
-                                    road.capitalize()))))
+                 % (left, escape(subtitle + "Concept only - not for "
+                                 "construction.")))
 
     # Plot boundary (thick) + setback line (dashed).
     x0, y0 = point(0, 0)
@@ -117,12 +131,65 @@ def svg_plan(result):
     # North arrow (top-right) + 10 ft scale bar (bottom-right). The arrow
     # shifts further right when the depth dimension also uses that side.
     arrow_x = left + draw_w * scale + (80 if road == "west" else 52)
-    parts.append(_north_arrow(arrow_x, top + 34))
+    parts.append(_north_arrow(arrow_x, top + 34, residual))
     parts.append(_scale_bar(left + draw_w * scale - 10 * scale,
                             top + draw_d * scale + 62, scale))
     parts.append('<text x="%.1f" y="%.1f" font-size="10">%s</text>'
                  % (left, top + draw_d * scale + 62,
                     escape("Figured dimensions govern.")))
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def svg_plot_preview(frontage_ft, depth_ft, north_angle=0.0):
+    """Bare plot preview: to-scale rectangle, road band, dims, north arrow.
+
+    Local frame (road at the bottom); the arrow turns with the real
+    north angle (0 = north away from the road, clockwise).
+    """
+    plot_w = max(float(frontage_ft), 1.0)
+    plot_d = max(float(depth_ft), 1.0)
+    try:
+        angle = float(north_angle) % 360.0
+    except (TypeError, ValueError):
+        angle = 0.0
+    scale = min(380.0 / plot_w, 330.0 / plot_d)
+    left, top = 95, 40
+    width = left + plot_w * scale + 110
+    height = top + plot_d * scale + 92
+
+    def pt(x, y):
+        """Local plot coords -> SVG coords (road edge at the bottom)."""
+        return left + x * scale, top + (plot_d - y) * scale
+
+    parts = []
+    parts.append(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.0f %.0f" '
+        'style="width:100%%;height:auto;max-width:520px;background:#fff" '
+        'font-family="sans-serif">' % (width, height))
+    parts.append('<text x="%d" y="22" font-size="14" font-weight="bold">%s'
+                 "</text>" % (left, escape("Plot preview (to scale)")))
+    x0, y0 = pt(0, 0)
+    x1, y1 = pt(plot_w, plot_d)
+    parts.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+                 'fill="none" stroke="#000" stroke-width="3"/>'
+                 % (min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0)))
+    band_top = top + plot_d * scale
+    parts.append('<rect x="%.1f" y="%.1f" width="%.1f" height="30" '
+                 'fill="#eee" stroke="#000" stroke-width="1.2"/>'
+                 % (left, band_top, plot_w * scale))
+    parts.append('<text x="%.1f" y="%.1f" font-size="13" font-weight="bold" '
+                 'text-anchor="middle">ROAD</text>'
+                 % (left + plot_w * scale / 2, band_top + 21))
+    parts.append(_dimension(pt(0, 0), pt(plot_w, 0), "below",
+                            "%s frontage" % format_ft_in(plot_w), scale))
+    parts.append(_dimension(pt(0, 0), pt(0, plot_d), "left",
+                            "%s deep" % format_ft_in(plot_d), scale))
+    arrow_x = left + plot_w * scale + 52
+    parts.append(_north_arrow(arrow_x, top + 30, angle))
+    parts.append('<text x="%.1f" y="%.1f" font-size="10" text-anchor="middle">'
+                 "%s</text>" % (arrow_x, top + 62,
+                                escape("north %g deg" % angle)))
     parts.append("</svg>")
     return "\n".join(parts)
 
@@ -247,14 +314,20 @@ def _tick(x, y):
             'stroke-width="1.4"/>' % (x - 4, y + 4, x + 4, y - 4))
 
 
-def _north_arrow(x, y):
-    """Circle + up triangle + N (the drawing is always north-up)."""
+def _north_arrow(x, y, angle=0.0):
+    """Circle + needle + N, needle rotated clockwise by angle degrees."""
+    spin = "" if abs(angle) < 0.001 else \
+        ' transform="rotate(%g %.1f %.1f)"' % (angle, x, y)
+    radians = math.radians(angle)
+    nx = x - 14 * math.sin(radians)
+    ny = y + 14 * math.cos(radians)
     return ('<g><circle cx="%.1f" cy="%.1f" r="17" fill="none" stroke="#000" '
             'stroke-width="1.4"/>'
-            '<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="#000"/>'
+            '<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="#000"%s/>'
             '<text x="%.1f" y="%.1f" font-size="11" font-weight="bold" '
             'text-anchor="middle">N</text></g>'
-            % (x, y, x, y - 13, x - 5.5, y + 2, x + 5.5, y + 2, x, y + 14))
+            % (x, y, x, y - 13, x - 5.5, y + 2, x + 5.5, y + 2, spin,
+               nx, ny))
 
 
 def _scale_bar(x, y, scale):

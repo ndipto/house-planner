@@ -7,7 +7,8 @@
 import streamlit as st
 
 from ai_program import format_ft_in, get_room_program
-from draw import svg_plan
+from draw import svg_plan, svg_plot_preview
+from layout import _closest_road
 from typology import build_options
 
 
@@ -15,7 +16,8 @@ def _svg_for_option(plot, option):
     """Render one typology option via svg_plan (adapts the plan shape)."""
     return svg_plan({"ok": True, "placements": option["placements"],
                      "plot": {"w": plot["width"], "d": plot["depth"],
-                              "road": plot["road"]}})
+                              "road": plot["road"],
+                              "north_angle": plot.get("north_angle", 0)}})
 
 
 def _rooms_for_table(rooms):
@@ -62,23 +64,39 @@ st.write(
 )
 
 # --- Input form: plot + bedrooms + toilets + wishes ---
-# Keep every input simple; plot numbers are in feet.
-frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40)
-depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60)
-road_side = st.selectbox("Which side faces the road?", ["North", "South", "East", "West"])
-num_bedrooms = st.number_input("Number of bedrooms", min_value=1, max_value=10, value=3)
-# Toilets: NO default on purpose. The field starts empty and the
-# client must fill it (number_input can't do that, so this is text).
-max_toilets = num_bedrooms + 1
-toilets_text = st.text_input(
-    "Number of toilets",
-    value="",
-    placeholder=f"Required: whole number from 1 to {max_toilets}",
-)
-wishes = st.text_area(
-    "Family needs and wishes (plain words)",
-    placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
-)
+# Keep every input simple; plot numbers are in feet. The live preview
+# beside the inputs redraws on every change (Streamlit reruns).
+input_col, preview_col = st.columns([1, 1])
+with input_col:
+    frontage_ft = st.number_input("Road frontage (ft)", min_value=10,
+                                  value=40)
+    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10,
+                               value=60)
+    north_angle = st.slider(
+        "North direction (degrees)",
+        min_value=0, max_value=360, value=0,
+        help="Drag until the north arrow matches your plot: 0 = north "
+             "points away from the road (road on the south side).",
+    )
+    road_side = _closest_road(north_angle)
+    st.caption("Road on the %s side." % road_side.capitalize())
+    num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
+                                   max_value=10, value=3)
+    # Toilets: NO default on purpose. The field starts empty and the
+    # client must fill it (number_input can't do that, so this is text).
+    max_toilets = num_bedrooms + 1
+    toilets_text = st.text_input(
+        "Number of toilets",
+        value="",
+        placeholder=f"Required: whole number from 1 to {max_toilets}",
+    )
+    wishes = st.text_area(
+        "Family needs and wishes (plain words)",
+        placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
+    )
+with preview_col:
+    st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
+                unsafe_allow_html=True)
 
 # --- Button: ask the AI, then show results ---
 if st.button("Generate room program"):
@@ -100,7 +118,7 @@ if st.button("Generate room program"):
         try:
             result = get_room_program(
                 frontage_ft, depth_ft, road_side,
-                int(num_bedrooms), num_toilets, wishes,
+                int(num_bedrooms), num_toilets, wishes, north_angle,
             )
         except Exception as err:
             # Friendly error: most often a missing .env key or no internet.
@@ -165,7 +183,7 @@ if st.button("Generate room program"):
         try:
             options_result = build_options(
                 rooms, frontage_ft, depth_ft, road_side, num_toilets,
-                wishes,
+                wishes, north_angle,
             )
         except Exception as err:
             st.error("Could not lay out the plan: %s" % err)
