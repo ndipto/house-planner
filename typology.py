@@ -1353,7 +1353,7 @@ def _master_bounds(placed, master_name):
     if not master_name:
         return {}
     beds = [r for r in placed if _room_type(r) == "bedroom"]
-    baths = [r for r in placed if _room_type(r) == "toilet"]
+    baths = [r for r in placed if r["type"] == "bathroom"]
     master = next((r for r in beds if r["name"] == master_name), None)
     others = [r for r in beds if r["name"] != master_name]
     need_master = master is not None and any(

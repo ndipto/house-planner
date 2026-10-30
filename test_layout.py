@@ -798,11 +798,11 @@ def test_t6_50x70_west_4bed_elderly():
     family living. Both wishes must be MET; the verdict must stay
     honest (livable exactly when zero hard fails).
 
-    NOTE (round 2 part 1): rules 5/16 now pass; the master tie (rule
-    19) still blocks A/B, while C's shrunk pass fixes the master (C
-    LIVABLE, only soft 17 fails). The L-wing second hub (item 1)
-    should make all three livable; strengthen this test to require
-    that when it lands.
+    NOTE (round 2 item 1): the bath filter in _master_bounds used a
+    _room_type "toilet" never matching type "bathroom", so pass-2
+    never shrank the common bath on A/B. Fixed by filtering on
+    type == "bathroom": all three LIVABLE with rule 7 PASS, so the
+    permitted L-wing second hub was not needed.
     """
     result = build_options(
         _program_4bed(), 50, 70, "West", 3,
@@ -815,16 +815,13 @@ def test_t6_50x70_west_4bed_elderly():
             == "MET", "garden placed"
         assert opt["livable"] == (opt["livability_fails"] == []), \
             "verdict matches hard fails on %s" % opt["label"]
-        # Round 2 part 1: doors model completely (rule 12 PASS); the
-        # master tie (rule 19) still blocks A/B; C's shrunk pass fixes
-        # the master, so C is LIVABLE (only soft 17 fails).
-
+        # Round 2 item 1: all three LIVABLE; doors complete (rule 12
+        # PASS), bedrooms open into family (rule 7 PASS), master tie
+        # fixed (rule 19 PASS).
         assert _rule_status(opt, "12") == "PASS", "doors complete"
-        if opt["label"] == "C":
-            assert opt["livable"] is True, "C livable via shrunk master"
-            assert _rule_status(opt, "19") == "PASS", "C master fixed"
-        else:
-            assert _rule_status(opt, "19") == "FAIL", "master tie stands"
+        assert _rule_status(opt, "7") == "PASS", "bedrooms into family"
+        assert _rule_status(opt, "19") == "PASS", "master tie fixed"
+        assert opt["livable"] is True, "T6 livable"
         _assert_clean(opt, result["buildable"], result["plot"])
     print("PASS test_t6_50x70_west_4bed_elderly (wishes MET, "
           "verdict honest)")
