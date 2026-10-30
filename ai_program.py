@@ -63,6 +63,23 @@ WALL_INT_FT = 5 / 12  # 5 in interior walls
 COMMON_SPACES = ("dining", "family living", "corridor")
 
 
+def get_api_key():
+    """META_API_KEY from Streamlit secrets first, else the environment.
+
+    st.secrets wins on Streamlit Cloud; the local .env (loaded above)
+    wins on a laptop. Returns "" when missing (callers raise a
+    friendly error).
+    """
+    try:
+        import streamlit as st
+        key = st.secrets.get("META_API_KEY", "")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+    return (os.getenv("META_API_KEY") or "").strip()
+
+
 def format_ft_in(feet):
     """Show a dimension in feet and inches: 14 -> 14'-0", 3.5 -> 3'-6".
 
@@ -505,11 +522,12 @@ def get_room_program(frontage_ft, depth_ft, road_side, num_bedrooms,
       "area_warning": "" when it fits, else a clear warning string.
     """
     # Read the key. The user creates .env themselves; we never ask for it.
-    api_key = os.getenv("META_API_KEY")
+    api_key = get_api_key()
     if not api_key:
         raise RuntimeError(
-            "META_API_KEY is missing. Create a .env file next to app.py "
-            "with the line META_API_KEY=your-key-here (see .env.example)."
+            "META_API_KEY is missing. On Streamlit Cloud add it under "
+            "Settings > Secrets; on your laptop create a .env file next "
+            "to app.py with META_API_KEY=your-key-here (see .env.example)."
         )
 
     # Connect to the Meta Model API (OpenAI-compatible client).

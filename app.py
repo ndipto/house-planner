@@ -9,6 +9,7 @@ import streamlit as st
 from ai_program import format_ft_in, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
+from render import exterior_prompt, generate_exterior
 from typology import build_options
 
 
@@ -222,6 +223,26 @@ if st.button("Generate room program"):
             st.write("Fail: %s; bend: %s."
                      % (", ".join(fails) if fails else "none",
                         ", ".join(bends) if bends else "none"))
+            cache = st.session_state.setdefault("exteriors", {})
+            plan_key = "%s|%s|%d" % (
+                opt["label"], opt["title"],
+                hash(repr(opt["placements"])))
+            if plan_key in cache:
+                st.image(cache[plan_key],
+                         caption="Exterior concept (AI render)")
+            if st.button("Generate exterior concept",
+                         key="ext_%s" % opt["label"]):
+                prompt = exterior_prompt(plot, opt)
+                with st.spinner(
+                        "Rendering the exterior with Muse Image..."):
+                    try:
+                        png = generate_exterior(prompt)
+                    except Exception as err:
+                        st.error("Could not render this view. %s" % err)
+                    else:
+                        cache[plan_key] = png
+                        st.image(png,
+                                 caption="Exterior concept (AI render)")
 
     # 7. Per-option detail (plans show solid walls, doors, windows).
     for opt in options:
