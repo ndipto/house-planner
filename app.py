@@ -59,39 +59,60 @@ def _rooms_for_table(rooms):
     return rows
 
 
+def _option_summary(opt):
+    """One-line demo summary: verdict, score, wishes, hard fails."""
+    verdict = "LIVABLE" if opt["livable"] else "UNLIVABLE"
+    wishes = opt.get("wishes", [])
+    met = sum(1 for row in wishes if row["status"] == "MET")
+    fails = ", ".join(opt["livability_fails"]) or "none"
+    return "%s - score %.0f, wishes %d/%d, hard fails: %s." % (
+        verdict, opt["score"], met, len(wishes), fails)
+
+
+def _show_error(friendly, err):
+    """Friendly error for users; raw text hidden in an expander."""
+    st.error(friendly)
+    with st.expander("Technical details"):
+        st.code("%s: %s" % (type(err).__name__, err))
+
+
 # --- Page title and short intro ---
 st.title("House Planner")
-st.write(
-    "Describe the house you want. The app asks Muse Spark for a room "
-    "program, builds three layout options on your plot, and draws each "
-    "as a concept floor plan."
-)
+st.write("A concept house planner for Bangladesh, built with an "
+         "architect's rules.")
+st.warning("Concept only - not for construction; consult a licensed "
+           "architect.")
+if st.button("Try an example"):
+    st.session_state["in_frontage"] = 40
+    st.session_state["in_depth"] = 60
+    st.session_state["in_north"] = 180
+    st.session_state["in_bedrooms"] = 3
+    st.session_state["in_toilets"] = "3"
+    st.rerun()
 
 # --- Input form: plot + bedrooms + toilets + wishes ---
 # Keep every input simple; plot numbers are in feet. The live preview
 # beside the inputs redraws on every change (Streamlit reruns).
 input_col, preview_col = st.columns([1, 1])
 with input_col:
-    frontage_ft = st.number_input("Road frontage (ft)", min_value=10,
-                                  value=40)
-    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10,
-                               value=60)
+    frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40, key="in_frontage")
+    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60, key="in_depth")
     north_angle = st.slider(
         "North direction (degrees)",
-        min_value=0, max_value=360, value=0,
+        min_value=0, max_value=360, value=0, key="in_north",
         help="Drag until the north arrow matches your plot: 0 = north "
              "points away from the road (road on the south side).",
     )
     road_side = _closest_road(north_angle)
     st.caption("Road on the %s side." % road_side.capitalize())
     num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
-                                   max_value=10, value=3)
+                                   max_value=10, value=3, key="in_bedrooms")
     # Toilets: NO default on purpose. The field starts empty and the
     # client must fill it (number_input can't do that, so this is text).
     max_toilets = num_bedrooms + 1
     toilets_text = st.text_input(
         "Number of toilets",
-        value="",
+        value="", key="in_toilets",
         placeholder=f"Required: whole number from 1 to {max_toilets}",
     )
     wishes = st.text_area(
@@ -125,8 +146,8 @@ if st.button("Generate room program"):
                 int(num_bedrooms), num_toilets, wishes, north_angle,
             )
         except Exception as err:
-            # Friendly error: most often a missing .env key or no internet.
-            st.error(str(err))
+            _show_error("Could not get a room program. Check your API key "
+                        "and connection, then try again.", err)
             st.stop()
 
     # 1. Rooms as a table (sizes in feet and inches).
@@ -190,7 +211,7 @@ if st.button("Generate room program"):
                 wishes, north_angle,
             )
         except Exception as err:
-            st.error("Could not lay out the plan: %s" % err)
+            _show_error("Could not lay out the plan from this program.", err)
             st.stop()
     options = options_result["options"]
     for item in options_result["notes"]:
@@ -202,7 +223,7 @@ if st.button("Generate room program"):
     tried = sum(opt["tried"] for opt in options)
     st.write(
         "Built %d option(s) (%d arrangements examined); scores rank them, "
-        "higher is better. UNLIVABLE means rules 5, 7, 13-16, 19 or "
+        "higher is better. UNLIVABLE means rules 4, 5, 7, 13-16, 19 or "
         "geometry G fail."
         % (len(options), tried)
     )
@@ -211,7 +232,7 @@ if st.button("Generate room program"):
         with column:
             st.markdown("### Option %s" % opt["label"])
             st.write(opt["title"])
-            st.write("Score: %.1f" % opt["score"])
+            st.caption(_option_summary(opt))
             if opt["livable"]:
                 st.success("LIVABLE")
             else:
@@ -238,7 +259,7 @@ if st.button("Generate room program"):
                     try:
                         png = generate_exterior(prompt)
                     except Exception as err:
-                        st.error("Could not render this view. %s" % err)
+                        _show_error("Could not render this view.", err)
                     else:
                         cache[plan_key] = png
                         st.image(png,
@@ -269,3 +290,4 @@ if st.button("Generate room program"):
                 st.write("Relaxed sizes: %s." % ", ".join(opt["relaxed"]))
             for item in opt["notes"]:
                 st.write("- " + item)
+    st.caption("Concept only - not for construction; consult a licensed architect.")
