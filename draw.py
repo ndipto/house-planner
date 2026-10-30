@@ -248,6 +248,8 @@ def _room_group(room, point, scale):
     name = str(room.get("name", "?"))
     short = SHORT_NAMES.get(str(room.get("type", "")), name.split(" ")[0])
     label = name if len(name) * 6.2 < width - 8 else short
+    if room.get("screened_jali"):
+        label = "Ver (jali)"
     dims = "%s x %s" % (format_ft_in(room["w"]), format_ft_in(room["d"]))
     try:
         area = "%d sq ft" % round(float(room["w"]) * float(room["d"]))
@@ -265,6 +267,12 @@ def _room_group(room, point, scale):
                'fill="#fff" stroke="none"/>'
                % (x, y, width, height))
     out = ['<g>' + box]
+    if room.get("screened_jali"):
+        # Jali/screen wall: a heavy line just outside the road edge.
+        jx0, jy0 = point(room["x"], room["y"] - 0.3)
+        jx1, jy1 = point(room["x"] + room["w"], room["y"] - 0.3)
+        out.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" '
+                   'stroke="#000" stroke-width="3"/>' % (jx0, jy0, jx1, jy1))
     if height < 24:
         out.append('<text x="%.1f" y="%.1f" font-size="9" text-anchor="middle">%s'
                    "</text>" % (cx, y + height / 2 + 3, escape(label)))

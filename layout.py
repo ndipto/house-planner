@@ -1178,7 +1178,7 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        else "all %d rooms inside, no overlaps" % len(rects)))
 
     angle = _resolve_angle(road_side, north_angle)
-    rules.extend(_check_livability(rects, angle))
+    rules.extend(_check_livability(rects, angle, windows))
 
     # Rule 18: toilet real sizes (per-side ranges, master bounds).
     bath_problems = []
@@ -1317,9 +1317,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
     return rules, goals, quality
 
 
-def _check_livability(rects, north_angle):
+def _check_livability(rects, north_angle, windows=None):
     """Strict rules 13-17 rows (13-16 decide UNLIVABLE; 17 reported)."""
-    return [_check_kitchen_exterior(rects, north_angle),
+    return [_check_kitchen_exterior(rects, north_angle, windows),
             _check_bedroom_walls(rects),
             _check_toilet_exterior(rects),
             _check_circulation(rects),
@@ -1343,7 +1343,7 @@ def _shared_wall_and_span(host, other):
     return None, 0.0, 0.0
 
 
-def _check_kitchen_exterior(rects, north_angle):
+def _check_kitchen_exterior(rects, north_angle, windows=None):
     """Rule 13: kitchen exterior wall (west preferred) + veranda on it."""
     kitchens = [r for r in rects if r["type"] == "kitchen"]
     if not kitchens:
@@ -1368,7 +1368,12 @@ def _check_kitchen_exterior(rects, north_angle):
     verandas = [r for r in rects if r["type"] == "veranda"
                 and r.get("veranda_for") == kitchen["name"]]
     if not verandas:
-        problems.append("kitchen has no veranda")
+        windowed = any(w["room"] == kitchen["name"] and w["wall"] != "S"
+                       for w in (windows or []))
+        if windowed:
+            notes.append("window-ventilated, no veranda (option C choice)")
+        else:
+            problems.append("kitchen has no veranda")
     else:
         side, start, end = _shared_wall_and_span(kitchen, verandas[0])
         on_exterior = 0.0
@@ -1378,7 +1383,9 @@ def _check_kitchen_exterior(rects, north_angle):
         if on_exterior < VENT_SIDE_FT - EPS:
             problems.append("veranda not on an exterior wall")
         else:
-            notes.append("veranda on %s exterior" % side)
+            notes.append("veranda on %s exterior%s"
+                             % (side, " (jali-screened)"
+                                if verandas[0].get("screened_jali") else ""))
     detail = "; ".join(problems + notes +
                         ([west_bend] if west_bend is not None else []))
     status = "FAIL" if problems else ("BEND" if west_bend is not None

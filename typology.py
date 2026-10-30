@@ -65,6 +65,7 @@ from layout import (
     _room_type,
     _round_half,
     _score,
+    _shared_wall_and_span,
     _type_range,
     _veranda_targets,
     livability_verdict,
@@ -2726,11 +2727,80 @@ def _door_bearing_nudge(rects, build_w, build_d, notes):
             rect["y"] -= shift[1]
 
 
+def _kitchen_veranda_variant(rects, label, build_w, build_d, notes):
+    """Night task 1: per-option answer for a road-facing kitchen veranda.
+
+    Runs when the placed kitchen veranda sits on wall S (the road),
+    i.e. no side/back wall had space. A keeps it with a jali/screen
+    wall; B re-seats it on a side/back wall (shifting the whole house
+    rigidly to free a 3 ft side margin when slack allows); C drops it
+    (the kitchen window ventilates instead). No-ops otherwise.
+    Returns a title suffix describing the choice.
+    """
+    kitchens = [r for r in rects if r["type"] == "kitchen"]
+    if not kitchens:
+        return ""
+    kitchen = kitchens[0]
+    verandas = [r for r in rects if r["type"] == "veranda"
+                and r.get("veranda_for") == kitchen["name"]]
+    if not verandas:
+        return ""
+    veranda = verandas[0]
+    side, _start, _end = _shared_wall_and_span(kitchen, veranda)
+    if side != "S":
+        return ""
+    if label == "A":
+        veranda["screened_jali"] = True
+        veranda["name"] = "%s (jali)" % veranda["name"]
+        notes.append("Kitchen veranda faces the road: kept with a "
+                     "jali/screen wall for privacy (option A choice).")
+        return "; kitchen veranda jali-screened"
+    if label == "C":
+        rects.remove(veranda)
+        walls = _exterior_walls(kitchen, rects)
+        win_wall = max(("W", "E", "N"), key=lambda w: walls[w])
+        if walls[win_wall] >= 3.0 - EPS:
+            notes.append("No kitchen veranda (option C choice): the "
+                         "kitchen window ventilates from the %s wall."
+                         % win_wall)
+        else:
+            notes.append("No kitchen veranda (option C choice), but no "
+                         "non-road window wall fits either.")
+        return "; no kitchen veranda (windowed)"
+    rects.remove(veranda)
+    east = kitchen["x"] + kitchen["w"] / 2.0 > build_w / 2.0
+    margin = build_w - max(r["x"] + r["w"] for r in rects) \
+        if east else min(r["x"] for r in rects)
+    shift = 0.0
+    if margin < 3.0 - EPS:
+        slack = min(r["x"] for r in rects) if east \
+            else build_w - max(r["x"] + r["w"] for r in rects)
+        shift = max(0.0, min(3.0 - margin, slack))
+        for rect in rects:
+            rect["x"] += -shift if east else shift
+    order = ["E", "N", "W"] if east else ["W", "N", "E"]
+    _add_verandas(rects, [(kitchen, order)], build_w, build_d, notes)
+    placed = [r for r in rects if r["type"] == "veranda"
+              and r.get("veranda_for") == kitchen["name"]]
+    if not placed:
+        notes.append("Side/back kitchen veranda did not fit (option B "
+                     "choice unmet); the kitchen keeps its window.")
+        return "; kitchen veranda off-road (unmet)"
+    new_wall, _s, _e = _shared_wall_and_span(kitchen, placed[0])
+    notes.append("Kitchen veranda moved off the road onto the %s wall "
+                 "(option B choice)%s."
+                 % (new_wall, "; house shifted %.1f ft to free a side "
+                    "margin" % shift if shift > EPS else ""))
+    return "; kitchen veranda on %s wall" % new_wall
+
+
 def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
                    num_toilets, notes, buckets, directives,
                    north_angle=None):
     """Check, score and shift one option to plot-local coordinates."""
     _door_bearing_nudge(rects, build_w, build_d, notes)
+    title += _kitchen_veranda_variant(rects, label, build_w, build_d,
+                                      notes)
     rules, goals, quality = _check_all(rects, info, build_w, build_d, road,
                                        num_toilets, north_angle,
                                        meta.get("open_plan", []),

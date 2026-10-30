@@ -22,7 +22,7 @@ from layout import (RELAXED_RANGES, _check_all, livability_verdict,
                     _master_bedroom, shared_wall)
 from openings import (SPACE_TYPES, audit_gaps, place_openings,
                      wall_segments)
-from typology import build_options
+from typology import _kitchen_veranda_variant, build_options
 
 
 def _room(name, room_type, width, depth, veranda=False, kind="", attached=""):
@@ -438,7 +438,8 @@ def test_circulation_kitchen_trap():
     ]
     by_id = {row["id"]: row for row in _mini_rules(rects)}
     assert by_id["7"]["status"] == "FAIL", "no dining/family to open onto"
-    assert by_id["13"]["status"] == "FAIL", "kitchen has no veranda"
+    assert by_id["13"]["status"] == "BEND", \
+        "windowed kitchen needs no veranda (night task 1: option C rule)"
     assert by_id["16"]["status"] == "FAIL", "bedroom route crosses kitchen"
     assert "KITCHEN" in by_id["16"]["detail"], "report must name the crossing"
     assert by_id["18"]["status"] == "PASS", "6x8 toilet, real size"
@@ -1104,6 +1105,66 @@ def test_svg_dimensions_rotated():
     print("PASS test_svg_dimensions_rotated (dims on the right sides x4)")
 
 
+def _veranda_wall(placements, host_name):
+    """Shared wall (N/S/E/W) between a room and its veranda (None)."""
+    by_name = {r["name"]: r for r in placements}
+    host = by_name.get(host_name)
+    ver = next((r for r in placements if r["type"] == "veranda"
+                and r.get("veranda_for") == host_name), None)
+    if host is None or ver is None:
+        return None
+    if abs(ver["y"] + ver["d"] - host["y"]) < 0.01:
+        return "S"
+    if abs(ver["y"] - (host["y"] + host["d"])) < 0.01:
+        return "N"
+    if abs(ver["x"] + ver["w"] - host["x"]) < 0.01:
+        return "W"
+    if abs(ver["x"] - (host["x"] + host["w"])) < 0.01:
+        return "E"
+    return None
+
+
+def test_kitchen_veranda_variants():
+    """Night task 1: road-boxed kitchens get A/B/C veranda choices."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    by_label = {o["label"]: o for o in result["options"]}
+    # A keeps the road veranda with a jali screen, noted + labeled.
+    opt_a = by_label["A"]
+    assert _veranda_wall(opt_a["placements"], "Kitchen") == "S"
+    ver_a = next(r for r in opt_a["placements"]
+                 if r.get("veranda_for") == "Kitchen")
+    assert ver_a.get("screened_jali") is True, "A road veranda screened"
+    assert "jali" in ver_a["name"].lower(), "A veranda labeled"
+    assert "jali" in opt_a["title"].lower(), "A choice in description"
+    # B moves the veranda off the road (realigns a boxed copy here:
+    # B's own kitchen already sits on a 4 ft side margin).
+    opt_b = by_label["B"]
+    assert _veranda_wall(opt_b["placements"], "Kitchen") != "S"
+    boxed = [dict(r) for r in opt_a["placements"]]
+    for rect in boxed:
+        rect["x"] -= SETBACK_SIDE_FT
+        rect["y"] -= SETBACK_FRONT_FT
+    notes_b = []
+    suffix_b = _kitchen_veranda_variant(
+        boxed, "B", result["buildable"]["width"],
+        result["buildable"]["depth"], notes_b)
+    assert _veranda_wall(boxed, "Kitchen") not in ("S", None), \
+        "B realigns off the road " + suffix_b
+    assert any("option b" in n.lower() for n in notes_b), "B choice noted"
+    # C drops the veranda; the window stays off the road.
+    opt_c = by_label["C"]
+    assert _veranda_wall(opt_c["placements"], "Kitchen") is None
+    placed_c = place_openings(opt_c["placements"], opt_c["open_plan"], 0.0)
+    walls_c = [w["wall"] for w in placed_c["windows"]
+               if w["room"] == "Kitchen"]
+    assert walls_c and "S" not in walls_c, "C windowed off-road"
+    assert "veranda" in opt_c["title"].lower(), "C choice in description"
+    for opt in result["options"]:
+        assert opt["livable"] is True, "option %s livable" % opt["label"]
+        _assert_clean(opt, result["buildable"], result["plot"])
+    print("PASS test_kitchen_veranda_variants (jali / side / window)")
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
@@ -1133,4 +1194,5 @@ if __name__ == "__main__":
     test_svg_walls_doors_windows()
     test_architect_round1()
     test_svg_dimensions_rotated()
+    test_kitchen_veranda_variants()
     print("ALL LAYOUT TESTS PASSED")
