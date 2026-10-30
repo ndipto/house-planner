@@ -10,8 +10,8 @@
 #      reporting PASS / BEND / FAIL for each (doors and windows are
 #      modeled since Day 3, so no rule stays PENDING).
 #   3. Scores an option for ranking, and gives the LIVABLE/UNLIVABLE verdict
-#      (UNLIVABLE iff rules 7, 13-16 or geometry G fail; rule 17 never
-#      flips it).
+#      (UNLIVABLE iff rules 4, 5, 7, 13-16, 19 or geometry G fail;
+#      rule 17 never flips it).
 #
 # Local frame (everything is placed here, the drawing rotates it later):
 #   - x runs parallel to the road, from the viewer's left (standing at the
@@ -561,10 +561,10 @@ def _veranda_rect(room, wall, segment, proj):
 
 # --- Livability helpers (strict Day-2 checks; 13-16 + G decide the verdict) ---
 
-# Hard-rule ids that decide the UNLIVABLE verdict: bedroom doors (5),
-# toilets (7), the strict livability checks (13-16), master size (19).
+# Hard-rule ids that decide the UNLIVABLE verdict: kitchen door (4),
+# bedroom doors (5), toilets (7), livability checks (13-16), master (19).
 # Geometry G joins them (see verdict).
-LIVABILITY_IDS = ("5", "7", "13", "14", "15", "16", "19")
+LIVABILITY_IDS = ("4", "5", "7", "13", "14", "15", "16", "19")
 
 # Kitchen needs this much continuous exterior wall (ventilation opening
 # plus the veranda door share it). Architect to confirm the 6 ft bar:
@@ -588,7 +588,7 @@ NEIGHBOUR_FT = 0.5
 def livability_verdict(rules):
     """(livable, failed_ids) from finished rule rows.
 
-    UNLIVABLE iff any of rules 5, 7, 13-16, 19 FAIL, or the geometry
+    UNLIVABLE iff any of rules 4, 5, 7, 13-16, 19 FAIL, or geometry
     row G FAILS (rooms outside the plot are unbuildable, hence unlivable).
     Rule 17 (cross-ventilation walls) is reported only and never flips
     the verdict.
@@ -788,7 +788,7 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
 
     rules: [{id, name, status, detail}] with status PASS/BEND/FAIL.
     BEND = requirement softened with a score penalty (relaxed size, missed
-    preference); FAIL on rules 5, 7, 13-16, 19 or G marks UNLIVABLE.
+    preference); FAIL on rules 4, 5, 7, 13-16, 19 or G marks UNLIVABLE.
     Doors and windows are really placed (openings.py, the same gaps the
     drawing shows) and really checked. goals: [{name, status, detail}]
     (MET/MISSED/N/A). quality: small dict of tiebreak facts.
@@ -845,9 +845,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        "corridor area 0 sq ft"
                        if not corridors else "corridor area present"))
 
-    # Rule 4: kitchen door into dining (real doors; an open-merged
-    # or glass-partitioned kitchen needs no swing door), at the kitchen
-    # corner farthest from the living room, never into the living room.
+    # Rule 4: kitchen door into dining (real doors; verdict-hard).
+    # The kitchen always keeps its swing door into dining (glass or
+    # not); the door sits at the far-from-living corner, never living.
     kitchens = [r for r in rects if r["type"] == "kitchen"]
     dinings = [r for r in rects if r["type"] == "dining"]
     livings = [r for r in rects if r["type"] == "living room"]
@@ -880,12 +880,12 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                 kitchen_lines.append("%s door %s"
                                      % (kitchen["name"], far_text))
             kitchen_ok = kitchen_ok and far_ok
-        elif merged:
-            kitchen_lines.append("%s open-merged with %s, one space"
-                                 % (kitchen["name"], merged[0]))
-        elif glazed:
-            kitchen_lines.append("%s glass partition to %s (slider)"
-                                 % (kitchen["name"], glazed[0]))
+            if glazed:
+                kitchen_lines.append("%s also glazed to %s (slider)"
+                                     % (kitchen["name"], glazed[0]))
+        # (A glass partition never excuses the door: it is noted
+        # above, beside the swing door. Round 2 item 6.)
+
         else:
             kitchen_ok = False
             kitchen_lines.append("%s has NO door into dining"
@@ -953,6 +953,25 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        "; ".join(wall_lines) if wall_lines
                        else "no bedrooms in plan"))
 
+    def _via_dressing_touch(bath, host, targets):
+        """True when the bath reaches its bedroom through a dressing
+        wardrobe sharing 3 ft+ with each (round 2 item 7: the wardrobe
+        sits between bedroom and bath, so no direct touch exists)."""
+        if host is None:
+            return False
+        for name in targets:
+            other = by_name.get(name)
+            if other is None or other["type"] not in ("wardrobe",
+                                                      "storage"):
+                continue
+            if bath["attached_to"] not in {_other_side(d, name)
+                                           for d in _doors_of(name)}:
+                continue
+            if shared_wall(bath, other) >= 3 - EPS \
+                    and shared_wall(other, host) >= 3 - EPS:
+                return True
+        return False
+
     # Rule 7: toilet count, 1 common, attached touch their bedroom;
     # attached doors open into their own bedroom directly or through
     # their dressing wardrobe, common doors into dining or family
@@ -971,15 +990,18 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
         if bath["bathroom_kind"] == "attached":
             host = _by_name(rects, bath["attached_to"])
             touch = shared_wall(bath, host) if host else 0.0
-            if host is None or touch < 3:
+            via_touch = _via_dressing_touch(bath, host, targets)
+            touch_note = "via dressing " if via_touch and touch < 3 else ""
+            if host is None or (touch < 3 and not via_touch):
                 toilet_ok = False
                 toilet_lines.append("%s NOT on '%s' (%.1f ft, needs 3 "
                                     "for a door)"
                                     % (bath["name"], bath["attached_to"] or "?",
                                        touch))
             else:
-                toilet_lines.append("%s touches %s (%.1f ft)"
-                                    % (bath["name"], host["name"], touch))
+                toilet_lines.append("%s touches %s%s(%.1f ft)"
+                                    % (bath["name"], host["name"],
+                                       touch_note, touch))
             via = [t for t in targets
                    if t in by_name and by_name[t]["type"] in ("wardrobe",
                                                               "storage")
@@ -1600,6 +1622,11 @@ def _check_bath_size(rect, rects):
             area = other["w"] * other["d"]
             if area > best_area:
                 master, best_area = other["name"], area
+    # Toilets follow the designated master (rule 19), not the largest
+    # placed room: the placer sizes the master's bath from the program,
+    # so a tied largest would cascade a false rule 18 fail.
+    _master = _master_bedroom(rects)
+    master = _master["name"] if _master is not None else ""
     if master and rect.get("attached_to", "") == master:
         w_low, w_high = MASTER_TOILET_W_RANGE
         d_low, d_high = MASTER_TOILET_D_RANGE
@@ -1672,7 +1699,7 @@ def _check_master_size(rects):
 def _score(rules, goals, quality):
     """One number per option: strict fails hurt most, bends cost a little.
 
-    Every FAIL costs 100 (all rules rank options, while only 5, 7,
+    Every FAIL costs 100 (all rules rank options, while only 4, 5, 7,
     13-16, 19 and G flip the verdict). BEND rows cost 1, except rule 1,
     whose relaxed rooms cost 2 each via quality. Goals, door facts and
     wishes break ties (met +10, missed -15: a plan missing a clear wish

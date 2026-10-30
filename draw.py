@@ -144,12 +144,33 @@ def svg_plan(result):
         parts.append('<text x="%.1f" y="%.1f" font-size="14" text-anchor="middle">'
                      '%s</text>' % (cx, cy, escape("No rooms placed - see notes.")))
 
-    # Overall dimensions (plot width at bottom; depth on the side
-    # opposite the road label so the two never collide).
-    parts.append(_dimension(point(0, 0), point(plot_w, 0), "below",
+    # Overall dimensions: frontage on its natural side, depth opposite
+    # the road label so the two never collide. Rotated plans (road
+    # east/west) map the road edge to a vertical line, so frontage
+    # stands on the side and depth lies below; north/south plans keep
+    # frontage below and depth on the left.
+    if road == "south":
+        width_edge = (point(0, 0), point(plot_w, 0))
+        depth_edge = (point(0, 0), point(0, plot_d))
+        width_side, depth_side = "below", "left"
+    elif road == "north":
+        width_edge = (point(0, plot_d), point(plot_w, plot_d))
+        depth_edge = (point(0, 0), point(0, plot_d))
+        width_side, depth_side = "below", "left"
+    elif road == "east":
+        width_edge = (point(0, plot_d), point(plot_w, plot_d))
+        depth_edge = (point(0, 0), point(0, plot_d))
+        width_side, depth_side = "left", "below"
+    else:  # west
+        width_edge = (point(0, plot_d), point(plot_w, plot_d))
+        depth_edge = (point(plot_w, 0), point(plot_w, plot_d))
+        width_side, depth_side = "right", "below"
+
+
+    parts.append(_dimension(width_edge[0], width_edge[1], width_side,
                             format_ft_in(plot_w), scale))
-    parts.append(_dimension(point(0, 0), point(0, plot_d),
-                            "right" if road == "west" else "left",
+    parts.append(_dimension(depth_edge[0], depth_edge[1], depth_side,
+
                             format_ft_in(plot_d), scale))
 
     # North arrow (top-right) + 10 ft scale bar (bottom-right). The arrow
@@ -280,7 +301,11 @@ def _wall_band(segment, point):
 
 
 def _landscape(rooms, plot_w, plot_d, point):
-    """Light-green fill over plot cells no room covers (never a void)."""
+
+    """Light-green fill over plot cells no room covers (never a void).
+
+    Cells are drawn 1 unit oversized so neighbours overlap: abutting
+    rects leave faint hairline seams on rotated plans otherwise."""
     xs = sorted({0.0, plot_w} | {r["x"] for r in rooms}
                 | {r["x"] + r["w"] for r in rooms})
     ys = sorted({0.0, plot_d} | {r["y"] for r in rooms}
@@ -302,8 +327,8 @@ def _landscape(rooms, plot_w, plot_d, point):
             bx, by = point(x1, y1)
             out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
                        'fill="#d5e5cf" stroke="none"/>'
-                       % (min(ax, bx), min(ay, by), abs(bx - ax),
-                          abs(by - ay)))
+                       % (min(ax, bx) - 0.5, min(ay, by) - 0.5,
+                          abs(bx - ax) + 1.0, abs(by - ay) + 1.0))
     return "".join(out)
 
 

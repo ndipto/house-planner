@@ -19,7 +19,7 @@ from ai_program import (
 )
 from draw import svg_plan, svg_plot_preview
 from layout import (RELAXED_RANGES, _check_all, livability_verdict,
-                    shared_wall)
+                    _master_bedroom, shared_wall)
 from openings import (SPACE_TYPES, audit_gaps, place_openings,
                      wall_segments)
 from typology import build_options
@@ -96,6 +96,9 @@ def _independent_errors(placements, buildable):
             area = rect["w"] * rect["d"]
             if area > best_area:
                 master, best_area = rect["name"], area
+    # Toilets follow the designated master (rule 19), like the checker.
+    _master = _master_bedroom(placements)
+    master = _master["name"] if _master is not None else ""
     for rect in placements:
         if not (rect["x"] >= bx0 - 0.01 and rect["y"] >= by0 - 0.01
                 and rect["x"] + rect["w"] <= bx1 + 0.01
@@ -496,15 +499,21 @@ def test_wide_shallow_bands():
         baths = [r for r in opt["placements"] if r["type"] == "bathroom"]
         assert baths and all(b["w"] == 5.0 for b in baths), \
             "toilets never stretched to fill the band"
+        kitchen = next(r for r in opt["placements"] if r["type"] == "kitchen")
+        dining = next(r for r in opt["placements"] if r["type"] == "dining")
+        assert shared_wall(kitchen, dining) >= 3 - 1e-6, \
+            "option %s: kitchen next to dining" % opt["label"]
+        assert _rule_status(opt, "4") == "PASS", "kitchen door into dining"
     by_label = {o["label"]: o for o in options}
     assert _rule_status(by_label["A"], "13") == "PASS", \
         "A: kitchen west corner + veranda"
     assert _rule_status(by_label["B"], "13") == "BEND", "B misses west"
-    # Day 3 (real doors): the band kitchen sits at the far end, away from
-    # dining, and the 3 ft corner store cannot take a 3 ft door - both
-    # honestly reported (non-verdict rules; C stays LIVABLE).
+    # Round 2: the band kitchen always sits next to dining (hard
+    # rule 4) with its door into dining; C runs the kitchen east
+    # (BEND 13, compare) and every option stays LIVABLE.
     assert [r["id"] for r in by_label["C"]["rules"]
-            if r["status"] == "FAIL"] == ["4", "12"], "C misses 4 + 12"
+            if r["status"] == "FAIL"] == [], "C misses nothing"
+    assert _rule_status(by_label["C"], "13") == "BEND", "C kitchen east"
     feet = [_footprint(o) for o in options]
     assert feet[0] != feet[1] and feet[0] != feet[2] \
         and feet[1] != feet[2], "options must differ"
@@ -644,7 +653,15 @@ def test_master_front_south_50x40():
                 "%s opens into family/dining" % bed["name"]
         fam = max(shared_wall(master, r) for r in opt["placements"]
                   if r["type"] == "family living")
-        assert fam >= 3 - 1e-6, "master opens into family living"
+        hub = max(shared_wall(master, r) for r in opt["placements"]
+                  if r["type"] in ("family living", "dining"))
+        if opt["label"] == "C":
+            # Round 2: C runs the common beside family (the kitchen
+            # hard rule), so the master opens into dining (rule-5
+            # fallback, as the docstring allows).
+            assert hub >= 3 - 1e-6, "master opens into family/dining"
+        else:
+            assert fam >= 3 - 1e-6, "master opens into family living"
     wishes = {label: {w["wish"]: w["status"]
                       for w in by_label[label]["wishes"]}
               for label in ("A", "B", "C")}
@@ -766,11 +783,11 @@ def test_t6_50x70_west_4bed_elderly():
     family living. Both wishes must be MET; the verdict must stay
     honest (livable exactly when zero hard fails).
 
-    NOTE (night queue, deferred to the architect): the 4-bedroom west
-    spine still strands back bedrooms (rules 5/16) and ties the master
-    (rule 19), so all options currently read UNLIVABLE with reasons.
-    Fixing that needs a new typology move (L extension / second hub);
-    when it lands, strengthen this test to require a LIVABLE option.
+    NOTE (round 2 part 1): rules 5/16 now pass; the master tie (rule
+    19) still blocks A/B, while C's shrunk pass fixes the master (C
+    LIVABLE, only soft 17 fails). The L-wing second hub (item 1)
+    should make all three livable; strengthen this test to require
+    that when it lands.
     """
     result = build_options(
         _program_4bed(), 50, 70, "West", 3,
@@ -783,11 +800,16 @@ def test_t6_50x70_west_4bed_elderly():
             == "MET", "garden placed"
         assert opt["livable"] == (opt["livability_fails"] == []), \
             "verdict matches hard fails on %s" % opt["label"]
-        # Day 3 honesty: the stranded bedroom and the kitchen (no
-        # dining wall) miss their doors too; both flip to PASS with
-        # the typology fix, together with the verdict.
-        assert _rule_status(opt, "4") == "FAIL", "kitchen doorless"
-        assert _rule_status(opt, "12") == "FAIL", "doors incomplete"
+        # Round 2 part 1: doors model completely (rule 12 PASS); the
+        # master tie (rule 19) still blocks A/B; C's shrunk pass fixes
+        # the master, so C is LIVABLE (only soft 17 fails).
+
+        assert _rule_status(opt, "12") == "PASS", "doors complete"
+        if opt["label"] == "C":
+            assert opt["livable"] is True, "C livable via shrunk master"
+            assert _rule_status(opt, "19") == "PASS", "C master fixed"
+        else:
+            assert _rule_status(opt, "19") == "FAIL", "master tie stands"
         _assert_clean(opt, result["buildable"], result["plot"])
     print("PASS test_t6_50x70_west_4bed_elderly (wishes MET, "
           "verdict honest)")
@@ -886,19 +908,19 @@ def test_doors_windows_placed():
 
 
 def test_door_bearing_nudge():
-    """Day 3: the 1-bed kitchen slides to a 3 ft dining bearing."""
+    """Round 2: the 1-bed kitchen bears 3.5 ft on dining natively."""
     result = build_options(PROGRAM_1BED, 40, 60, "North", 1)
     by_label = {o["label"]: o for o in result["options"]}
     for label in ("A", "B"):
         opt = by_label[label]
         names = {r["name"]: r for r in opt["placements"]}
         bearing = shared_wall(names["Kitchen"], names["Dining"])
-        assert bearing >= 3.0 - 0.01, \
+        assert bearing >= 3.5 - 0.01, \
             "%s kitchen bears %.1f ft on dining" % (label, bearing)
         assert _rule_status(opt, "4") == "PASS", "kitchen door fits"
-    assert any("nudged" in note for opt in result["options"]
-               for note in opt["notes"]), "the nudge is reported"
-    print("PASS test_door_bearing_nudge (1-bed A/B bear 3 ft)")
+    # No nudge fires anywhere now: round-2 scoring bears 3.5 ft directly.
+
+    print("PASS test_door_bearing_nudge (1-bed A/B bear 3.5 ft)")
 
 
 def test_svg_walls_doors_windows():
@@ -1007,8 +1029,8 @@ def test_architect_round1():
     assert ("Kitchen", "Dining") in c2["glass_partitions"]
     p2 = place_openings(c2["placements"], c2["open_plan"], 0.0,
                         c2["glass_partitions"])
-    assert not any({d["room"], d["into"]} == {"Kitchen", "Dining"}
-                   for d in p2["doors"]), "slider, no swing door"
+    assert any({d["room"], d["into"]} == {"Kitchen", "Dining"}
+                   for d in p2["doors"]), "round 2 item 6: glass + swing door"
     spine_ys = set()
     for n in ("Foyer", "Living Room", "Dining", "Family Living"):
         spine_ys.add(round(names[n]["y"], 2))
@@ -1022,6 +1044,42 @@ def test_architect_round1():
     svg = svg_plan(_svg_for(opt, result["plot"]))
     assert svg.count("#d5e5cf") > 5, "leftover drawn as landscape"
     print("PASS test_architect_round1 (12 rules honored)")
+
+
+def test_svg_dimensions_rotated():
+    """Round 2 item 9: overall dims on the right sides, every rotation."""
+    from ai_program import format_ft_in
+    rooms = [{"name": "Room A", "type": "bedroom", "x": 5, "y": 10,
+              "w": 12, "d": 14}]
+    for road, plot_w, plot_d in (("south", 40, 60), ("north", 40, 60),
+                                 ("east", 60, 40), ("west", 60, 40)):
+        fake = {"ok": True, "placements": rooms,
+                "plot": {"w": plot_w, "d": plot_d, "road": road}}
+        root = ET.fromstring(svg_plan(fake))
+        ns = "{http://www.w3.org/2000/svg}"
+        plot = root.find("%srect[@stroke-width='3']" % ns)
+        px0, py0 = float(plot.get("x")), float(plot.get("y"))
+        px1 = px0 + float(plot.get("width"))
+        py1 = py0 + float(plot.get("height"))
+        texts = {}
+        for node in root.iter("%stext" % ns):
+            texts.setdefault(node.text or "", []).append(node)
+        width_nodes = texts.get(format_ft_in(plot_w), [])
+        depth_nodes = texts.get(format_ft_in(plot_d), [])
+        assert len(width_nodes) == 1, "%s: one width dim" % road
+        assert len(depth_nodes) == 1, "%s: one depth dim" % road
+        wx, wy = float(width_nodes[0].get("x")), float(width_nodes[0].get("y"))
+        dx, dy = float(depth_nodes[0].get("x")), float(depth_nodes[0].get("y"))
+        if road in ("south", "north"):
+            assert wy > py1, "%s: width dim below plot" % road
+            assert dx < px0, "%s: depth dim left of plot" % road
+        elif road == "east":
+            assert wx < px0, "east: width dim left of plot"
+            assert dy > py1, "east: depth dim below plot"
+        else:
+            assert wx > px1, "west: width dim right of plot"
+            assert dy > py1, "west: depth dim below plot"
+    print("PASS test_svg_dimensions_rotated (dims on the right sides x4)")
 
 
 if __name__ == "__main__":
@@ -1052,4 +1110,5 @@ if __name__ == "__main__":
     test_door_bearing_nudge()
     test_svg_walls_doors_windows()
     test_architect_round1()
+    test_svg_dimensions_rotated()
     print("ALL LAYOUT TESTS PASSED")

@@ -8,7 +8,7 @@
 # always agree: one placement, two readers.
 #
 # Door table (widths in ft, 4 in off true corners, never clashing;
-# a T-junction partition is not a corner, so no clearance is owed it).
+# a T-junction partition keeps a 3 in return (architect round 2).
 # Every door hugs a corner (4-6 in return), hinged on the corner side,
 # swinging against the wall; none is ever centered:
 #   entry 3.5: porch -> foyer (swings into the foyer);
@@ -16,9 +16,9 @@
 #     wide openings with short wall stubs between them, never doors;
 #   bedroom 3.0: bedroom -> family living, else dining, NEVER living/foyer;
 #   kitchen 3.0: kitchen -> dining at the corner farthest from the
-#     living room (unless open-merged or glass-partitioned to dining or
-#     family: one space / a slider needs no swing door), plus 2.5 to
-#     its own veranda. The kitchen never connects to the living room;
+#     living room (glass never excuses the swing door), plus 2.5
+#     to its own veranda. The kitchen never connects to living.
+
 #   toilet 2.5: attached bath -> its dressing wardrobe (which opens to
 #     the bedroom), else its own bedroom directly; common bath -> dining
 #     or family living; wardrobe/store -> its bedroom, else a hub space;
@@ -36,6 +36,7 @@ EPS = 1e-6
 EXT_WALL_FT = 10.0 / 12.0
 INT_WALL_FT = 5.0 / 12.0
 CORNER_CLR_FT = 4.0 / 12.0
+TJUNCTION_CLR_FT = 3.0 / 12.0
 
 ENTRY_W_FT = 3.5
 ROOM_W_FT = 3.0
@@ -214,10 +215,11 @@ def wall_fits_window(rect, rects, doors, side, width):
     return False
 
 
-def _wall_end_clearance(rect, side, end, rects):
-    """Corner clearance (ft) at one wall end: 4 in at a true corner, 0
-    where another indoor room continues the same wall plane past the
-    end (a T-junction partition, not a corner)."""
+def _raw_wall_end_probe(rect, side, end, rects):
+    """Raw wall-end probe: 4 in at a true corner, 0 where another
+    indoor room continues the same wall plane past the end (a
+    T-junction partition). Callers use _wall_end_clearance, which grants
+    the T-junction a 3 in return (architect round 2)."""
     x, y, w, d = rect["x"], rect["y"], rect["w"], rect["d"]
     if side == "S":
         line, fixed, span = (x, x + w), y, "h"
@@ -259,6 +261,13 @@ def _wall_end_clearance(rect, side, end, rects):
                         and ospan[1] > edge + 0.02:
                     return 0.0
     return CORNER_CLR_FT
+
+
+def _wall_end_clearance(rect, side, end, rects):
+    """Corner clearance (ft): 4 in at a true corner, 3 in where a
+    partition meets the wall mid-run (T-junction return)."""
+    raw = _raw_wall_end_probe(rect, side, end, rects)
+    return raw if raw > 0 else TJUNCTION_CLR_FT
 
 
 def _gap_center(length, width, prefer, keepouts, low_clr=None,
@@ -345,6 +354,7 @@ class _Placer:
         """(side, center) for a door on one room's wall, None if none.
 
         prefer "corner" hugs the run's start corner (never centered);
+        "end" hugs the run's far end;
         "far" hugs whichever run end lies nearer the target point.
         """
         host = self.by_name[host_name]
@@ -365,6 +375,8 @@ class _Placer:
                     + abs(near_end[1] - target[1])
                 wish = start + width / 2.0 if dist_start <= dist_end \
                     else end - width / 2.0
+            elif prefer == "end":
+                wish = end - width / 2.0
             elif prefer == "mid":
                 wish = (start + end) / 2.0
             else:
@@ -379,6 +391,33 @@ class _Placer:
                 continue
             return (side, center)
         return None
+
+    def _gap_clears_both(self, host_name, other_name, fit, width):
+        """True when a candidate gap clears both rooms' wall ends.
+
+        A door frame needs its return (4 in at true corners, 3 in
+        at T-junctions) on EACH side of the shared wall; the audit
+        checks both, so placement must too.
+        """
+        side, center = fit
+        host = self.by_name[host_name]
+        x0, y0 = _point_on_wall(host, side, center - width / 2.0)
+        x1, y1 = _point_on_wall(host, side, center + width / 2.0)
+        for name in (host_name, other_name):
+            if self.by_name[name]["type"] in UNWALLED_TYPES:
+                continue  # open air: the host wall stands alone
+            rect = self.by_name[name]
+            located = self._locate_gap(rect, x0, y0, x1, y1)
+            if located is None:
+                continue
+            wall, middle = located
+            length = _wall_length(rect, wall)
+            start, end = middle - width / 2.0, middle + width / 2.0
+            low = _wall_end_clearance(rect, wall, 0, self.rects)
+            high = _wall_end_clearance(rect, wall, 1, self.rects)
+            if start < low - 0.02 or end > length - high + 0.02:
+                return False
+        return True
 
     def _corner_gap(self, host_name, fit, width):
         """Nearer edge-to-wall-end distance for a fit, +inf if none."""
@@ -396,15 +435,28 @@ class _Placer:
             self.problems.append("no %s door: %s or %s missing"
                                  % (kind, room, into))
             return False
-        # Either room's wall can carry the gap (same physical wall);
-        # the side hugging a true corner best wins (ties: room side).
-        room_fit = self._fit_side(room, into, width, prefer, target)
-        into_fit = self._fit_side(into, room, width, prefer, target)
-        if self._corner_gap(into, into_fit, width) < \
-                self._corner_gap(room, room_fit, width):
-            fit, wall_room = into_fit, into
+        # Either room's wall can carry the gap (same physical wall).
+        # Both run ends are tried; a candidate must clear both rooms'
+        # wall ends (corner + T returns); the corner-hugging best wins.
+        wishes = [prefer] + (["end"] if prefer in ("corner", "start")
+                              else [])
+        candidates = []
+        for host_name, other_name in ((room, into), (into, room)):
+            for wish in wishes:
+                fit = self._fit_side(host_name, other_name, width, wish,
+                                     target)
+                if fit is not None and self._gap_clears_both(
+                        host_name, other_name, fit, width):
+                    candidates.append((fit, host_name))
+        best = None
+        for fit, host_name in candidates:
+            gap = self._corner_gap(host_name, fit, width)
+            if best is None or gap < best[0]:
+                best = (gap, host_name, fit)
+        if best is None:
+            fit, wall_room = None, room
         else:
-            fit, wall_room = room_fit, room
+            fit, wall_room = best[2], best[1]
         if fit is None:
             self.problems.append("%s door %s -> %s does not fit"
                                  % (kind, room, into))
@@ -415,7 +467,12 @@ class _Placer:
         x1, y1 = _point_on_wall(wall_host, side, center + width / 2.0)
         # The gap occupies both rooms' walls: reserve it on each.
         sides = {}
-        for name in (room, into):
+        # Unwalled rooms (veranda/porch) are open air: the host wall
+        # stands alone, so no side is recorded and no return is owed.
+        walled = [n for n in (room, into)
+                  if self.by_name[n]["type"] not in UNWALLED_TYPES]
+        for name in walled:
+
             located = self._locate_gap(self.by_name[name], x0, y0, x1, y1)
             if located is not None:
                 sides[name] = located[0]
@@ -578,7 +635,8 @@ def wall_segments(rects, doors, windows, open_plan=None,
             for start, end in _subtract_spans(shared + stubs, cuts):
                 segments.append(_thick_rect(rect, side, start, end,
                                             INT_WALL_FT, "int"))
-            for start, end in glass_run:
+            # The swing door keeps its gap; glass fills the rest.
+            for start, end in _subtract_spans(glass_run, cuts):
                 x0, y0 = _point_on_wall(rect, side, start)
                 x1, y1 = _point_on_wall(rect, side, end)
                 segments.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1,
@@ -764,14 +822,14 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
                                    "does not fit" % bed["name"])
 
     # Kitchen -> dining at the kitchen corner farthest from the
-    # living room (unless open-merged or glass-partitioned to dining or
-    # family: one space / a slider needs no swing door), plus one to its
+    # living room (a glass partition never excuses it: the kitchen
+    # always keeps its swing door into dining), plus one to its
     # own veranda. The kitchen never connects to the living room.
     living_rect = placer.by_name.get(living, {}) if living else {}
     for kitchen in by_type.get("kitchen", []):
-        merged = any(is_open(kitchen["name"], hub) or
-                     is_glass(kitchen["name"], hub) for hub in hubs)
-        if dins and not merged:
+        # The kitchen always keeps its swing door into dining, glass
+        # partition or not (round 2 item 6).
+        if dins:
             corners = [(kitchen["x"], kitchen["y"]),
                        (kitchen["x"] + kitchen["w"], kitchen["y"]),
                        (kitchen["x"], kitchen["y"] + kitchen["d"]),
@@ -792,7 +850,7 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
                       + abs(c[1] - anchor[1]))
             placer._add_door("room", ROOM_W_FT, kitchen["name"], dins[0],
                              kitchen["name"], prefer="far", target=far)
-        elif not dins and not merged:
+        elif not dins:
             placer.problems.append("no room door: %s or Dining missing"
                                    % kitchen["name"])
         for veranda in by_type.get("veranda", []):

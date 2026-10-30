@@ -131,3 +131,63 @@ dining still fail 4+12 (decision 3); NEW: bands wardrobes open to
 family, not a bedroom - accept, or re-zone bands so each wardrobe sits
 between its bath and bedroom?
 
+## Architect decisions round 2 - part 1 (Oct 31, committed, not pushed)
+
+Items 9 and 5 done; items 3/4/6/7 mostly done (26/28 tests pass - the
+2 fails are one stuck point, see below). Items 1, 2, 8 and the review
+re-save land in part 2.
+
+Done:
+- Item 9 (rotated drawing): overall dims now sit on the per-road edges
+  (N/S below+left; E left+below; W right+below) so labels never
+  collide; landscape cells oversized 1 unit to kill hairline grid
+  seams on rotated plans. New test_svg_dimensions_rotated.
+- Item 5 (T returns + bearings): door frames may sit at partition
+  T-junctions with a 3 in return (architect allowed 3-4 in; 3.5 in
+  broke front-master bands, so 3 in); 3 ft doors need 3.5 ft bearings
+  in the stacker, fatal proxy and scorer alike (the kitchen trusts no
+  nudge anymore - the nudge only rescues an already-placed 3.0).
+- Item 3 (kitchen-dining hard rule): rule 4 is verdict-hard; band
+  plans re-zoned so the kitchen always sits next to dining (front
+  [kitchen, dining, ...]; C runs [living, foyer, dining, kitchen]
+  with the kitchen ending the row so no path crosses it); the common
+  toilet sits beside family; front-master bands already complied.
+- Item 6 (enclosed kitchen + glass): kitchen pairs stay out of
+  open-plan merge; glass/slider to dining or family AND the swing door
+  into dining is always kept (test now pins door + glass together).
+- Item 7 (wardrobes/ensuite): paired strip tops embed a 2.5 ft
+  dressing band (pair fixed at 8.5 ft: 6 wet + 2.5 dressing) so Bath
+  1 keeps Bath->wardrobe->bedroom; rule 7 accepts via-dressing touch
+  (3 ft+ on each side, reported).
+- Item 4 (pantry) partial: the residual band store lands under the
+  kitchen on A (adjacent, opens toward it); B/C place it away from
+  the kitchen - moving it under the kitchen is still open (part 2).
+- Incidental: shrunk pass (10,10)->(10,11) (10x10 is square on 10 ft
+  strips) with computed master need; T6-C now LIVABLE via the shrunk
+  master (A/B still 19-blocked); T6 pins updated to per-label
+  reality; T6-C 19 pin and the T2-C glass-door pin flipped to match
+  round-2 behavior (documented in the tests).
+
+STUCK (30-minute rule - do not debug further without a new idea):
+test_front_facing_master + test_angle_30_south_wish, option C (45x55
+South, south-master wish, three-strip): rule 19 FAILS (Bedroom 1
+126 sq ft vs Bedroom 2 180 sq ft). Pass-1 winner is correct except
+sizes; the grow pass forces bed1 to 15 ft (breaks bed3/kitchen
+bearings, fatal2, rejected); the shrunk pass stacks a 19-OK tribe
+but reports fatal2=1 (one bearing miss) and is rejected - while a
+direct probe of the same order/bounds/spans reports fatal2=0 and
+accepts. The probe-vs-real divergence survived 60+ minutes: order
+slots, bounds, spans, base_min, tops, bath extras were each verified
+or ruled out; the printed real second tribe (top 45, bottom 6.0)
+bears 3.5+ on every slot by hand computation, yet f2=1. Suspects
+left: the real winner-order differs from the probed one in a slot
+detail never printed, or a spans/base_min input differs from what
+the final geometry implies. Next idea when resuming: print the full
+second tribe WITH per-slot fatal reaches inside the real run until
+the missing slot is isolated - then fix that slot's bound, not the
+pass logic.
+
+Still open for part 2: item 1 (T6 L-wing second hub, all LIVABLE),
+item 2 (T5 30x50 two-strip compact, LIVABLE), item 8 (kitchen veranda
+never road-side), pantry placement for B/C, review/ SVG re-save.
+
