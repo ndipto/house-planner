@@ -187,7 +187,53 @@ second tribe WITH per-slot fatal reaches inside the real run until
 the missing slot is isolated - then fix that slot's bound, not the
 pass logic.
 
-Done in part 2 so far: item 2 (T5 compact two-strip, 3 livable).
-Still open: item 1 (T6 L-wing second hub, all LIVABLE), item 8
-(kitchen veranda never road-side), pantry placement for B/C, review/ SVG re-save.
+Part 2 finished below (items 1+2, pantry, re-save done; item 8
+blocked under the 30-minute rule; rule-19 C still stuck).
+
+## Architect decisions round 2 - part 2 (Oct 31, final; committed, not pushed)
+
+26/28 tests pass (same 2 stuck-point fails as part 1 - the "27/28"
+in PROJECT.md's part-2 line was a miscount, corrected); T1-T6
+review/ re-saved: all 18 options LIVABLE.
+
+Done:
+- Item 1 (T6): all three LIVABLE WITHOUT the L-wing. Root cause was
+  a one-line bug: _master_bounds filtered baths by _room_type
+  "toilet", which never matches type "bathroom", so pass-2 never
+  shrank the common bath on A/B (rule 19). Filter now on
+  type == "bathroom" (typology.py). test_t6 strengthened: all
+  LIVABLE, rules 7/12/19 PASS (every bedroom door opens into family
+  living - the architect's clause). The permitted second-hub L-wing
+  was not needed.
+- Item 4 (pantry) complete: corner Stores open to the kitchen first
+  (openings.py; Wardrobes keep bedroom-first per item 7); rule 4
+  allows the pantry door alongside dining + own veranda (layout.py).
+  Pinned in test_doors_windows_placed (T1-A Store -> Kitchen).
+  The ensuite bath then doors directly to its bedroom (allowed).
+- Item 2: T5 compact two-strip, 3 livable (committed earlier).
+- review/ re-saved via save_review.py (18 LIVABLE SVGs + NOTES.txt);
+  stale T6 UNLIVABLE SVGs deleted.
+
+BLOCKED (30-minute rule, reverted to keep the suite green):
+- Item 8 (kitchen veranda never road-side): banning wall S leaves
+  the 40x60 North A/B/C kitchens veranda-less (their only exterior
+  wall with space outside is S), so rule 13 hard-fails and all three
+  go UNLIVABLE. Worse, a probe shows a compliant W-wall veranda FITS
+  the shipped B geometry, yet the shipped option lacks it - shipped
+  rooms/notes mix passes (same family as the stuck point below).
+  The proper fix needs strip-margin typology work (house narrower
+  than buildable on the kitchen side) plus the pass-mixing resolved.
+  Both edits reverted; tree verified clean before the pantry change.
+
+STUCK (unchanged from part 1): test_front_facing_master +
+test_angle_30_south_wish option C (45x55 South south-master wish,
+rule 19: Bedroom 1 126 sq ft vs Bedroom 2 180 sq ft). The T6
+bath-filter fix did NOT move it (equal baths there): the shrunk
+stack is 19-OK in a direct probe (fatal2=0) but the real run
+reports fatal2=1 on the same tribe. Do not debug further without
+a new idea.
+
+Commits this round (none pushed): part 1 (items 9+5, 3/4/6/7
+progress), part 2 item 2 (T5), part 2 item 1 (T6), this final
+(pantry, re-save, docs). See git log for hashes.
 

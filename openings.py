@@ -860,6 +860,8 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
 
     # Wardrobe/store: opens to its bedroom as a dressing lobby, else to
     # a hub space, else the kitchen, else a bath. No sealed boxes.
+    # (Round 2 item 4: a corner Store doubles as a pantry - it tries
+    # the kitchen first. Item 7 keeps Wardrobes on bedrooms.)
     dressings = by_type.get("wardrobe", []) + by_type.get("storage", [])
     bed_names = [r["name"] for r in by_type.get("bedroom", [])]
     hub_names = [r["name"] for kind in
@@ -869,7 +871,10 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
     bath_names = [r["name"] for r in by_type.get("bathroom", [])]
     for store in dressings:
         placed = False
-        for target in bed_names + hub_names + kitchen_names:
+        targets = bed_names + hub_names + kitchen_names
+        if store["name"].startswith("Store"):
+            targets = kitchen_names + bed_names + hub_names
+        for target in targets:
             if placer._add_door("room", ROOM_W_FT, store["name"], target,
                                 target):
                 placed = True

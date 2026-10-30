@@ -902,6 +902,16 @@ def test_doors_windows_placed():
         assert any({d["room"], d["into"]} == {other, host}
                    for d in doors), \
             "%s opens on to %s" % (other, host)
+    stores = [r for r in opt["placements"]
+              if r["name"].startswith("Store")]
+    assert stores, "T1-A has a corner store"
+    for store in stores:
+        hits = [d for d in doors
+                if store["name"] in (d["room"], d["into"])]
+        others = [{d["room"], d["into"]} - {store["name"]}
+                  for d in hits]
+        assert any({"Kitchen"} == o for o in others), \
+            "%s opens to the kitchen (pantry)" % store["name"]
     verandas = [r for r in opt["placements"] if r["type"] == "veranda"]
     assert verandas, "T1-A has verandas"
     for veranda in verandas:

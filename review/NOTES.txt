@@ -21,11 +21,11 @@ T4: frontage 50, depth 40, road South, wishes 'open living and dining for family
   Option C LIVABLE   fails=[-] wishes=[Open plan: dining + living room: NOT MET; south-facing master bedroom: NOT MET] -> T4_50x40_South_C_LIVABLE.svg
 
 T5: frontage 30, depth 50, road North, wishes '-'
-  no option fits: Option A skipped: side rooms need at least 54 ft depth, have 40 ft.
-  no option fits: Option B skipped: side rooms need at least 54 ft depth, have 40 ft.
-  no option fits: Option C skipped: side rooms need at least 54 ft depth, have 40 ft.
+  Option A LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_A_LIVABLE.svg
+  Option B LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_B_LIVABLE.svg
+  Option C LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_C_LIVABLE.svg
 
 T6: frontage 50, depth 70, road West, wishes 'garden, elderly parents need a bedroom near family living'
-  Option A UNLIVABLE fails=[5, 16, 19] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_A_UNLIVABLE.svg
-  Option B UNLIVABLE fails=[5, 16, 19] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_B_UNLIVABLE.svg
-  Option C UNLIVABLE fails=[5, 16, 19] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_UNLIVABLE.svg
+  Option A LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_A_LIVABLE.svg
+  Option B LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_B_LIVABLE.svg
+  Option C LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_LIVABLE.svg

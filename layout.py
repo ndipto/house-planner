@@ -865,6 +865,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
     for kitchen in kitchens:
         own_verandas = {v["name"] for v in verandas
                         if v.get("veranda_for") == kitchen["name"]}
+        pantry = {r["name"] for r in rects
+                  if r["type"] in ("wardrobe", "storage")
+                  and r["name"].startswith("Store")}
         merged = [name for name in hub_names
                   if frozenset((kitchen["name"], name)) in open_set]
         glazed = [name for name in hub_names
@@ -892,10 +895,11 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                                  % kitchen["name"])
         for door in _doors_of(kitchen["name"]):
             other = _other_side(door, kitchen["name"])
-            if other not in dining_names and other not in own_verandas:
+            if other not in dining_names and other not in own_verandas \
+                    and other not in pantry:
                 kitchen_ok = False
                 kitchen_lines.append("%s door into %s (only dining + "
-                                     "own veranda allowed)"
+                                     "own veranda + pantry allowed)"
                                      % (kitchen["name"], other))
     rules.append(_rule("4", "Kitchen door into dining",
                        "PASS" if kitchen_ok else "FAIL",
