@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Architect review round 1 done Oct 30 (12 rules from the T1 plans; Day 3 done Oct 30 — solid walls (10 in ext / 5 in int), real doors (entry 3'6", room 3'0", toilet 2'6", veranda 2'6") and windows (bed 4'0" x2 preferred, living 5'0", kitchen 3'0", bath 2'0" never road-side); every door/window rule really checked, zero PENDING, new soft rule 20 (living-space windows + west-glass report); T1-T6 regression set green (26/26) with review/ SVGs re-saved. T6 4-bed west stays honestly UNLIVABLE (needs a new typology move — architect decision pending). Architect round 2 part 1 done Oct 31 (rotated-drawing fixes, 3 in T-returns + 3.5 ft bearings, kitchen-dining hard rule with band re-zone, glass+door kitchens, dressing-band ensuites; 26/28 tests, 2 red on rule-19 strips C — stuck point documented in NIGHT_REPORT.md). Round 2 part 2 Oct 31: T5 compact two-strip done (3 livable, 26/28). Round 2 final Oct 31: T6 all livable via bath-bounds fix (L-wing not needed), corner-store pantries, review/ re-saved 18/18 livable; 26/28 (item 8 veranda-off-road blocked + rule-19 strips-C stuck, both in NIGHT_REPORT.md).
+**Status:** Architect review round 1 done Oct 30 (12 rules from the T1 plans; Day 3 done Oct 30 — solid walls (10 in ext / 5 in int), real doors (entry 3'6", room 3'0", toilet 2'6", veranda 2'6") and windows (bed 4'0" x2 preferred, living 5'0", kitchen 3'0", bath 2'0" never road-side); every door/window rule really checked, zero PENDING, new soft rule 20 (living-space windows + west-glass report); T1-T6 regression set green (26/26) with review/ SVGs re-saved. T6 4-bed west stays honestly UNLIVABLE (needs a new typology move — architect decision pending). Architect round 2 part 1 done Oct 31 (rotated-drawing fixes, 3 in T-returns + 3.5 ft bearings, kitchen-dining hard rule with band re-zone, glass+door kitchens, dressing-band ensuites; 26/28 tests, 2 red on rule-19 strips C — stuck point documented in NIGHT_REPORT.md). Round 2 part 2 Oct 31: T5 compact two-strip done (3 livable, 26/28). Round 2 final Oct 31: T6 all livable via bath-bounds fix (L-wing not needed), corner-store pantries, review/ re-saved 18/18 livable; 26/28 (item 8 veranda-off-road blocked + rule-19 strips-C stuck, both in NIGHT_REPORT.md). Night queue Oct 31 done Oct 31: kitchen-veranda variants (jali/side/windowed), Muse Image exterior renders (verified live), DEPLOY.md, demo polish, Muse Voice brief (mocked, needs live mic test); 33/35 tests (same 2 stuck fails); review/ re-saved 18/18 livable.
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -27,7 +27,7 @@ This is a **concept tool**, not construction documents. It helps a family see th
 1. **Brief → room program (AI).** Muse Spark, called through the Meta Model API, reads the user's brief and returns structured JSON: for each room its name, type, target area, min/max dimensions, required adjacencies (e.g. kitchen next to dining), orientation preferences (e.g. bedrooms face south/southeast), plus a short "design reasoning" paragraph written in an architect's voice.
 2. **Room program → layout (plain Python, no AI).** Simple, well-commented Python builds THREE options (A/B/C) from the architect's own planning typologies (see Zoning strategy), shaped by the client's wishes (combined spaces placed adjacent as one open space; a wished garden buffers the living room; facing wishes place bedrooms on the correct real-world side, overriding zoning — a road-side south master goes in a front corner). Geometry is a HARD constraint: nothing is ever placed outside the buildable area — an option that cannot fit is skipped with a clear reason. Every option is checked against the HARD RULES in "Design Rules (from the architect)" below and shows its score plus pass/bend/fail per rule, plus a Client-wishes table (each wish MET / NOT MET / SKIPPED; missed wishes rank the option lower).
 3. **Layout → drawing (SVG).** The app draws a clean, dimensioned 2D plan in SVG format with room names, areas, doors, windows, overall dimensions, and a north arrow / scale note.
-4. **Stretch goals (only if time allows):**
+4. **Stretch goals (both built Oct 31):**
    - **Muse Image** generates one exterior concept render from the plan/brief.
    - **Muse Voice Transcribe** lets the user speak the brief instead of typing it.
 
@@ -152,6 +152,10 @@ Project files:
 - `draw.py` — draws one option's SVG plan (solid walls, doors, windows) + the live plot preview `svg_plot_preview` (Day 2, walls/doors/windows Day 3).
 - `openings.py` — door/window placement + wall bands + gap audit, shared by the drawing and the checker (Day 3).
 - `test_layout.py` — typology options + minis + drawing checks, run `python test_layout.py` (Day 2, T1-T6 + Day 3 checks).
+- `render.py` — exterior concept prompt + Muse Image call (night queue Oct 31).
+- `voice.py` — mic recording → supported WAV → Muse Voice Transcribe (night queue Oct 31).
+- `test_render.py`, `test_voice.py` — mocked Image/Voice tests, run `python test_render.py` / `python test_voice.py`.
+- `DEPLOY.md` — click-by-click Streamlit Community Cloud deploy steps (night queue Oct 31).
 - `save_review.py` — re-saves the T1-T6 review/ SVGs + NOTES.txt (run after placer/drawing changes).
 - `review/` — one SVG per review-brief option + NOTES.txt (verdicts, fails, wishes).
 - `requirements.txt` — Python packages needed.
@@ -167,7 +171,7 @@ Docs portal: `https://dev.meta.ai/docs/` (quickstart + models pages). The API is
 - **Text endpoint (room program):** `POST /v1/responses` (Responses API, the current default) with model `muse-spark-1.3`. Fallback: `POST /v1/chat/completions` with the same model if a library only supports Chat Completions.
 - **Text model:** `muse-spark-1.3` (latest hosted Spark; 1M-token context). Older options if needed: `muse-spark-1.2`, `muse-spark-1.1`. Cheaper Contributor variants (`muse-spark-1.3-contributor`, `muse-spark-1.2-contributor`) exist but carry contributor terms — avoid unless budget requires it.
 - **Image endpoint (stretch):** `POST /v1/images/generations` with model `muse-image-1.0`.
-- **Voice endpoint (stretch):** `POST /v1/asr/transcribe` with model `muse-voice-transcribe-1.0` for recorded audio (realtime option `wss://api.meta.ai/v1/asr/realtime` is out of scope for this project).
+- **Voice endpoint (built Oct 31):** `POST /v1/asr/transcribe` with model `muse-voice-transcribe-1.0` (realtime option `wss://api.meta.ai/v1/asr/realtime` is out of scope for this project). Shape re-verified Oct 31 against the official speech-to-text + transcribe-reference docs: multipart parts `request` (JSON: model, audioEncoding WAV, mode PUSH_TO_TALK) + `audio` (the WAV file); WAV-only (mono 16-bit PCM 16/24 kHz — the app normalizes with stdlib, no ffmpeg); JSON answer carries the full text in `transcript`; caps 32 MB / 10 min.
 - **Do NOT use:** `api.llama.com` (retired July 6, 2026), `api.ai.meta.com` (old pre-launch endpoint), or open-weight models `Muse Spark Open` / `Muse Glimmer` (they run on your own hardware, not on the Model API).
 - **Approx. price (Standard tier, from Meta price card):** Muse Spark about $1.25 / 1M input tokens + $4.25 / 1M output tokens. Keep prompts short and cache nothing sensitive.
 
@@ -206,7 +210,8 @@ Update this list as we go (each item: date + one line).
 - [x] Oct 31: Architect round 2 part 1 (items 9+5 done, 3/4/6/7 mostly done, 26/28 pass, part-2 items open).
 - [x] Oct 31: Round 2 part 2 item 2 — T5 compact two-strip (combined living+dining, small foyer, solid pair, lower-end sizes; 3 livable, 26/28).
 - [x] Oct 31: Round 2 final — item 1 T6 all livable (bath-bounds fix, L-wing not needed), pantry Stores, review/ re-saved 18/18 livable, docs (26/28; item 8 blocked, rule-19 C stuck).
-- [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).
+- [x] Oct 31 (night queue): kitchen-veranda variants (jali screen / side-back / windowed) + test; exterior renders (render.py, verified live); DEPLOY.md + pinned requirements + secrets-first key; demo polish (subtitle, Try-an-example, one-line summaries, friendly errors, concept notes); voice brief (voice.py + audio_input, mocked tests, needs live mic test); review/ re-saved 18/18 livable; 33/35 tests (same 2 stuck fails).
+- [x] Nov 1: `app.py` — full local flow code complete (brief → plan on screen + render + voice); owner to run live (sandbox blocks server sockets, so no boot check was possible).
 - [ ] Nov 2: Deployed to Streamlit Community Cloud (public link: _tbd_).
 - [ ] Nov 3: Stretch feature (_tbd_) or polish.
 - [ ] Nov 4: Demo video recorded + hackathon submitted.

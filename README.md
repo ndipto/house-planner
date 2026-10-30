@@ -38,8 +38,11 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026).
   program, the only AI call in the pipeline. Placement, drawing and
   checking are plain Python so every plan is reproducible and
   rule-traceable.
-- Stretch goals (not built yet): **Muse Image** for an exterior concept
-  render, **Muse Voice Transcribe** for speaking the brief.
+- **Muse Image (`muse-image-1.0`)** — one exterior concept render per
+  option, from a "Generate exterior concept" button (verified live).
+- **Muse Voice Transcribe (`muse-voice-transcribe-1.0`)** — speak the
+  brief into the microphone; the transcript fills the wishes box
+  (code + mocked tests done, needs one live microphone test).
 
 ## How to run it
 
@@ -49,10 +52,12 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (26 automated tests, no key needed):
+Run the checks (35 automated tests, no key needed):
 
 ```bash
-python test_layout.py
+python test_layout.py    # 29 placer/checker/drawing tests (T1-T6 included)
+python test_render.py    # 3 mocked Muse Image tests
+python test_voice.py     # 3 mocked Muse Voice tests
 ```
 
 Re-save the review set after placer/drawing changes:
@@ -63,7 +68,7 @@ python save_review.py       # writes review/*.svg + review/NOTES.txt
 
 ## Built during the hackathon (Oct 26 – Nov 4)
 
-From the git history (all work Oct 29–30 so far):
+From the git history:
 
 - **Oct 29** — project spec + the architect's design rules; Day 1: brief
   to room program with Muse Spark, area budget, feet-inch display;
@@ -76,6 +81,12 @@ From the git history (all work Oct 29–30 so far):
   size + family-living hub + wishes override zoning; night queue:
   T1–T6 regression set with review SVGs, then walls/doors/windows with a
   real checker (zero unchecked rules).
+- **Oct 31** — architect review rounds 1+2 (rules 22–33, kitchen-dining
+  hard rule, T5 compact two-strip, T6 all livable, pantry stores);
+  night queue: kitchen-veranda variants (jali screen / side-back /
+  windowed), exterior concept renders with Muse Image, Streamlit Cloud
+  deploy guide, demo polish (example brief, one-line summaries,
+  friendly errors), voice brief with Muse Voice Transcribe.
 
 ## Authorship note
 

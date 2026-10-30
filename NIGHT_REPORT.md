@@ -237,3 +237,77 @@ Commits this round (none pushed): part 1 (items 9+5, 3/4/6/7
 progress), part 2 item 2 (T5), part 2 item 1 (T6), this final
 (pantry, re-save, docs). See git log for hashes.
 
+## Night of Oct 31 (queue TASKs 1-6; PC restarted mid-TASK 4, resumed)
+
+All six tasks done, committed one by one, nothing pushed (you push
+from your own terminal). Suite after every task: **33/35 pass** -
+the 2 fails are the same stuck pair as round 2 (rule-19 option C,
+do-not-debug), nothing new broke. Zero live API calls from the
+resume session (TASK 2's live render check ran before the restart).
+
+Commits tonight: `086e780` (TASK 1), `4cb663f` (TASK 2),
+`4981c59` (TASK 3), `8c2bd23` (TASK 4), `462edda` (TASK 5),
+plus this report (TASK 6).
+
+Done:
+- TASK 1 (kitchen veranda variants): road-only kitchens now vary
+  by option - A keeps the veranda drawn/labeled with a jali
+  screen wall, B moves the kitchen so its veranda sits off-road,
+  C drops the veranda for a non-road window. Noted per option;
+  kitchen windows still never face the road. New
+  test_kitchen_veranda_variants.
+- TASK 2 (exterior render): per-option "Generate exterior
+  concept" button, prompt built from the plan (plot, road,
+  porch, verandas, flat roof, jali noted), spinner + per-option
+  cache + friendly errors. Mocked test_render.py; verified live
+  before the restart.
+- TASK 3 (deploy-ready): key from st.secrets first, then env;
+  requirements pinned; no local paths; DEPLOY.md with the exact
+  click-by-click Cloud steps. Not deployed - you do that.
+- TASK 4 (demo polish, finished after the restart): subtitle
+  "A concept house planner for Bangladesh, built with an
+  architect's rules"; "Try an example" fills 40x60 / road North
+  / 3 bed / 3 toilets; A/B/C side by side with one-line
+  summaries; rule tables already under expanders; concept-only
+  notes top and bottom; spinners on all three waits; no raw
+  errors anywhere (friendly text + hidden technical expander).
+  Verified by compile + full top-level run + suite (below).
+- TASK 5 (voice brief): mic input above the wishes box; a new
+  recording transcribes once and fills the box (your edits after
+  that are kept). Built against Meta's official docs ONLY
+  (speech-to-text + transcribe reference): multipart parts
+  `request` (model/audioEncoding/mode JSON) + `audio`; WAV-only
+  endpoint, so voice.py normalizes any WAV to mono 16-bit
+  24 kHz with the standard library (no ffmpeg, Cloud-safe).
+  Mocked test_voice.py (3 tests); NO live call made - you must
+  test with a real microphone (decision 1).
+- TASK 6 (docs): README (Image + Voice, 35 tests, Oct 31
+  history), PROJECT.md (status, files, voice shape, checklist),
+  this section; review/ re-saved (6 SVGs redrawn by the
+  variants, still 18/18 LIVABLE).
+
+Stopped by rule (not by cap):
+- Boot/smoke tests: PERMANENTLY SKIPPED from now on, per your
+  new rule. What happened: the pre-restart "boot app headless"
+  probe never returned (Start-Job + fetch hung, then the PC
+  restarted). After the resume I tried twice more with a 60 s
+  cap and guaranteed tree-kill (server-only, no browser at
+  all): both failed fast inside the sandbox - Windows blocks
+  ALL socket creation here (WinError 10013), so Streamlit
+  cannot even build its event loop, and streamlit's own
+  AppTest fails the same way. No server or browser was left
+  running (ports verified free). TASK 4 is instead verified by
+  py_compile + a full bare run of app.py (every top-level line
+  executes clean) + the 33/35 suite. Please run `streamlit
+  run app.py` once yourself and click through it.
+
+Decisions needed (owner):
+1. Voice live test: record a real brief - does the transcript
+   land in the wishes box? (If the browser sends non-WAV, the
+   app shows a friendly "record again or type it" message;
+   tell me and I'll add an ffmpeg conversion step.)
+2. Deploy to Streamlit Cloud with DEPLOY.md, then confirm the
+   public link + Secrets key work.
+3. Demo video (Nov 4): exterior render + voice brief are both
+   in - pick which one stars in the recording.
+
