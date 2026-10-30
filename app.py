@@ -11,6 +11,7 @@ from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
 from render import exterior_prompt, generate_exterior
 from typology import build_options
+from voice import transcribe_audio
 
 
 def _svg_for_option(plot, option):
@@ -115,9 +116,26 @@ with input_col:
         value="", key="in_toilets",
         placeholder=f"Required: whole number from 1 to {max_toilets}",
     )
+    voice_note = st.audio_input("Speak your brief (optional, Bangla or English)")
+    if voice_note is not None:
+        # New recording only: transcribe once, then fill the wishes box
+        # below (set before the widget exists, so no rerun warning).
+        heard = voice_note.getvalue()
+        if st.session_state.get("voice_digest") != hash(heard):
+            with st.spinner("Transcribing your brief with Muse Voice..."):
+                try:
+                    said = transcribe_audio(heard)
+                except Exception as err:
+                    _show_error("Could not transcribe this recording.", err)
+                    said = ""
+            st.session_state["voice_digest"] = hash(heard)
+            if said:
+                st.session_state["in_wishes"] = said
+                st.rerun()
     wishes = st.text_area(
         "Family needs and wishes (plain words)",
         placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
+        key="in_wishes",
     )
 with preview_col:
     st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
