@@ -16,6 +16,8 @@ def _svg_for_option(plot, option):
     """Render one typology option via svg_plan (adapts the plan shape)."""
     return svg_plan({"ok": True, "placements": option["placements"],
                      "open_plan": option.get("open_plan", []),
+                     "glass_partitions": option.get("glass_partitions",
+                                                   []),
                      "plot": {"w": plot["width"], "d": plot["depth"],
                               "road": plot["road"],
                               "north_angle": plot.get("north_angle", 0)}})

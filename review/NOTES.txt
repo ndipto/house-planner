@@ -6,9 +6,9 @@ T1: frontage 40, depth 60, road North, wishes '-'
   Option C LIVABLE   fails=[-] wishes=[-] -> T1_40x60_North_C_LIVABLE.svg
 
 T2: frontage 45, depth 55, road South, wishes 'combined living and kitchen for family gathering, small garden beside the living room'
-  Option A LIVABLE   fails=[-] wishes=[Open plan: kitchen + living room: MET; Garden with the living room: MET] -> T2_45x55_South_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[Open plan: kitchen + living room: MET; Garden with the living room: MET] -> T2_45x55_South_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[Open plan: kitchen + living room: MET; Garden with the living room: NOT MET] -> T2_45x55_South_C_LIVABLE.svg
+  Option A LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_A_LIVABLE.svg
+  Option B LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_B_LIVABLE.svg
+  Option C LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_C_LIVABLE.svg
 
 T3: frontage 40, depth 60, road East, wishes 'south facing master bedroom, nice living room'
   Option A LIVABLE   fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_A_LIVABLE.svg

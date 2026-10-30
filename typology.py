@@ -149,18 +149,22 @@ def _wish_room(phrase):
 def _parse_wishes(wishes):
     """Parse client wishes into layout directives.
 
-    Returns {"combine": [(type_a, type_b)], "garden": bool,
+    Returns {"combine": [(type_a, type_b)], "glass": [(type_a, type_b)],
+    "refused": [(type_a, type_b)], "garden": bool,
     "facing": [{"room", "side", "master", "second", "phrase"}],
     "near": [{"room", "near", "master", "phrase"}], "notes": []}.
-    Bedroom combinations are refused (privacy); unknown rooms are noted
-    and skipped. The garden always sits beside the living room for now.
-    Facing wishes ("south facing master bedroom") place that bedroom on
-    the correct real-world side. Near wishes ("a bedroom near family
-    living") are evaluated, not placed.
+    Bedroom combinations are refused (privacy); kitchen combinations
+    become glass partitions to dining/family (the kitchen always stays
+    enclosed and never connects to the living room); unknown rooms are
+    noted and skipped. The garden always sits beside the living room
+    for now. Facing wishes ("south facing master bedroom") place that
+    bedroom on the correct real-world side. Near wishes ("a bedroom
+    near family living") are evaluated, not placed.
     """
     text = (wishes or "").strip().lower()
-    directives = {"combine": [], "garden": False, "facing": [],
-                  "near": [], "notes": []}
+    directives = {"combine": [], "glass": [], "refused": [],
+                  "garden": False, "facing": [], "near": [],
+                  "notes": []}
     if not text:
         return directives
     seen = set()
@@ -178,6 +182,28 @@ def _parse_wishes(wishes):
             if "bedroom" in rooms:
                 directives["notes"].append(
                     "Bedrooms stay separate (privacy); combination skipped.")
+                continue
+            if "kitchen" in rooms:
+                other = rooms[1] if rooms[0] == "kitchen" else rooms[0]
+                pair = tuple(sorted(rooms))
+                directives["combine"].append(pair)
+                if other == "living room":
+                    directives["refused"].append(pair)
+                    if ("kitchen", "dining") not in directives["glass"]:
+                        directives["glass"].append(("kitchen", "dining"))
+                    directives["notes"].append(
+                        "The kitchen always stays enclosed (Bangladeshi "
+                        "cooking) and never connects to the living room; "
+                        "it joins dining with a glass partition instead.")
+                elif other in ("dining", "family living"):
+                    if pair not in directives["glass"]:
+                        directives["glass"].append(pair)
+                else:
+                    directives["refused"].append(pair)
+                    directives["notes"].append(
+                        "The kitchen combines only with dining or family "
+                        "living (glass partition); '%s and %s' skipped."
+                        % (first.strip(), second.strip()))
                 continue
             directives["combine"].append(tuple(sorted(rooms)))
     seen_facing = set()
@@ -385,13 +411,25 @@ def _bath_extra(bath, master_name):
     return (5.0, is_master)
 
 
+def _present_types(buckets):
+    """Room types available to wishes in this program."""
+    return {_room_type(r) for key in
+            ("foyer", "living", "kitchen", "dining", "family")
+            for r in buckets[key]}
+
+
 def _valid_pairs(buckets, directives, notes):
-    """Wished combine pairs whose rooms are both in the program (noted)."""
-    present = {_room_type(r) for key in
-               ("foyer", "living", "kitchen", "dining", "family")
-               for r in buckets[key]}
+    """Wished combine pairs whose rooms are both in the program (noted).
+
+    Kitchen pairs verify through glass partitions, refused pairs never
+    verify, so both stay out of the open-plan check.
+    """
+    present = _present_types(buckets)
+    refused = set(directives.get("refused", []))
     valid = []
     for pair in directives["combine"]:
+        if pair in refused or "kitchen" in pair:
+            continue
         if pair[0] in present and pair[1] in present:
             valid.append(pair)
         else:
@@ -454,14 +492,16 @@ def _wish_walls(beds, facing, road, north_angle):
 def _wishes_table(rects, meta, buckets, directives, road, north_angle):
     """Per-option client-wishes table + ranking counts.
 
-    Combine wishes are MET when the pair shares an open plan; facing
-    wishes when the bedroom has a window-able (6 ft+) exterior wall on
-    the wished side (its veranda is ordered there best-effort); near
-    wishes when a door-able (3 ft+) wall is shared; the garden wish
-    when a garden is placed. Pairs outside the program and wishes for
-    missing rooms are SKIPPED (noted at parse/place time, never
-    ranked). Returns (rows, met, total): total counts MET + NOT MET
-    only, so skipped wishes never rank an option down.
+    Combine wishes are MET when the pair shares an open plan (kitchen
+    pairs verify through glass partitions instead, and refused pairs
+    read SKIPPED); facing wishes when the bedroom has a window-able
+    (6 ft+) exterior wall on the wished side (its veranda is ordered
+    there best-effort); near wishes when a door-able (3 ft+) wall is
+    shared; the garden wish when a garden is placed. Pairs outside the
+    program and wishes for missing rooms are SKIPPED (noted at
+    parse/place time, never ranked). Returns (rows, met, total): total
+    counts MET + NOT MET only, so skipped wishes never rank an option
+    down.
     """
     rows = []
     achieved = set()
@@ -469,8 +509,25 @@ def _wishes_table(rects, meta, buckets, directives, road, north_angle):
         pair_rects = [_by_name(rects, name) for name in (first, second)]
         if all(pair_rects):
             achieved.add(tuple(sorted(_room_type(r) for r in pair_rects)))
+    glass_done = set()
+    for first, second in meta.get("glass", []):
+        pair_rects = [_by_name(rects, name) for name in (first, second)]
+        if all(pair_rects):
+            glass_done.add(tuple(sorted(_room_type(r) for r in pair_rects)))
     valid = _valid_pairs(buckets, directives, [])
+    refused = set(directives.get("refused", []))
+    present = _present_types(buckets)
     for pair in directives["combine"]:
+        if "kitchen" in pair:
+            text = "Glass partition: %s + %s" % pair
+            if pair in refused or pair[0] not in present \
+                    or pair[1] not in present:
+                rows.append((text, "SKIPPED"))
+            elif tuple(sorted(pair)) in glass_done:
+                rows.append((text, "MET"))
+            else:
+                rows.append((text, "NOT MET"))
+            continue
         text = "Open plan: %s + %s" % pair
         if pair not in valid:
             rows.append((text, "SKIPPED"))
@@ -1124,6 +1181,37 @@ def _verify_open_plan(rects, valid_pairs, notes):
     return achieved
 
 
+def _verify_glass(rects, buckets, directives, notes):
+    """Note which glass partitions share a 6 ft+ run (slider fits).
+
+    Returns the achieved [(name_a, name_b)] pairs for the option record.
+    """
+    by_type = {}
+    for rect in rects:
+        by_type.setdefault(_room_type(rect), rect)
+    present = _present_types(buckets)
+    achieved = []
+    for pair in directives.get("glass", []):
+        first, second = by_type.get(pair[0]), by_type.get(pair[1])
+        if pair[0] not in present or pair[1] not in present:
+            notes.append("Glass partition needs %s + %s; not in the "
+                         "program, skipped." % pair)
+            continue
+        if first is None or second is None:
+            continue
+        shared = shared_wall(first, second)
+        if shared >= 6 - EPS:
+            notes.append("Glass partition: %s + %s share %.0f ft (sliding "
+                         "glass door)." % (first["name"], second["name"],
+                                            shared))
+            achieved.append((first["name"], second["name"]))
+        else:
+            notes.append("Glass partition missed: %s + %s share only "
+                         "%.1f ft." % (first["name"], second["name"],
+                                       shared))
+    return achieved
+
+
 def _ceil_half(value):
     """Smallest 0.5-ft step covering value (float-dust safe)."""
     return math.ceil(value * 2 - EPS) / 2
@@ -1385,13 +1473,15 @@ def _three_strip(buckets, build_w, build_d, kitchen_strip, master_strip,
            _wish_walls(buckets["bedrooms"], directives["facing"], road,
                        north_angle))
     achieved = _verify_open_plan(rects, valid_pairs, notes)
+    glass = _verify_glass(rects, buckets, directives, notes)
     house_w = 2 * side_w + center_w
     indoor = [r for r in rects
               if _room_type(r) not in ("porch", "veranda", "garden")]
     info = {"row_front_y": y0, "row_widths": [house_w],
             "house_back": max(r["y"] + r["d"] for r in indoor)}
     return rects, info, {"tried": tried_all, "relaxed": relaxed,
-                         "typology": "three-strip", "open_plan": achieved}
+                         "typology": "three-strip", "open_plan": achieved,
+                         "glass": glass}
 
 
 def _assign_two_strip(buckets, notes, kitchen_first, directives,
@@ -1535,12 +1625,14 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
            _wish_walls(buckets["bedrooms"], directives["facing"], road,
                        north_angle))
     achieved = _verify_open_plan(rects, valid_pairs, notes)
+    glass = _verify_glass(rects, buckets, directives, notes)
     indoor = [r for r in rects
               if _room_type(r) not in ("porch", "veranda", "garden")]
     info = {"row_front_y": y0, "row_widths": [center_w + side_w],
             "house_back": max(r["y"] + r["d"] for r in indoor)}
     return rects, info, {"tried": tried + count, "relaxed": relaxed,
-                         "typology": "two-strip", "open_plan": achieved}
+                         "typology": "two-strip", "open_plan": achieved,
+                         "glass": glass}
 
 
 def _width_options(room, depth, kind):
@@ -2031,6 +2123,7 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
                        north_angle))
     achieved = _verify_open_plan(rects, _valid_pairs(buckets, directives,
                                                      notes), notes)
+    glass = _verify_glass(rects, buckets, directives, notes)
     indoor = [r for r in rects
               if _room_type(r) not in ("porch", "veranda", "garden")]
     relaxed = [buckets["family"][0]["name"]] if back_d < 12 - EPS \
@@ -2039,7 +2132,7 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
             "house_back": max(r["y"] + r["d"] for r in indoor)}
     return rects, info, {"tried": tried_front + tried_back,
                          "relaxed": relaxed, "typology": "shallow-band",
-                         "open_plan": achieved}
+                         "open_plan": achieved, "glass": glass}
 
 
 def _row_widths_l(rooms, target, depth, notes):
@@ -2197,7 +2290,8 @@ def _try_l_shape(buckets, build_w, build_d, notes, directives):
 
     Failed combos leave no notes behind (scratch list, kept on success).
     A wished living+kitchen combination reorders the front wing so the
-    two sit adjacent (one open space).
+    two sit adjacent (full wall between: the kitchen never opens to the
+    living room, it takes glass to dining instead).
     """
     if build_w < 45 - EPS:
         return None
@@ -2224,9 +2318,11 @@ def _try_l_shape(buckets, build_w, build_d, notes, directives):
                 rects, info, relaxed, achieved = result
                 notes.extend(scratch)
                 notes.append("Open court fills the L's back-east corner.")
+                glass = _verify_glass(rects, buckets, directives, notes)
                 return rects, info, {"tried": tried, "relaxed": relaxed,
                                      "typology": "l-shape",
-                                     "open_plan": achieved}
+                                     "open_plan": achieved,
+                                     "glass": glass}
     return None
 
 
@@ -2297,7 +2393,8 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
     _door_bearing_nudge(rects, build_w, build_d, notes)
     rules, goals, quality = _check_all(rects, info, build_w, build_d, road,
                                        num_toilets, north_angle,
-                                       meta.get("open_plan", []))
+                                       meta.get("open_plan", []),
+                                       meta.get("glass", []))
     wish_rows, met, total = _wishes_table(rects, meta, buckets, directives,
                                           road, north_angle)
     quality["wishes_met"] = met
@@ -2316,6 +2413,7 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
             "notes": list(notes), "tried": meta["tried"],
             "relaxed": list(meta.get("relaxed", [])),
             "open_plan": list(meta.get("open_plan", [])),
+            "glass_partitions": list(meta.get("glass", [])),
             "wishes": [{"wish": wish, "status": status}
                        for wish, status in wish_rows]}
 
@@ -2333,7 +2431,7 @@ def _option_specs(buckets, build_w, build_d, road, directives,
             if directives["combine"]:
                 notes.append("Option C keeps rooms separate (compare with "
                              "the open plan).")
-            plain = dict(directives, combine=[])
+            plain = dict(directives, combine=[], glass=[])
             return _two_strip(buckets, build_w, build_d, True, False, notes,
                               plain, road, angle)
 
@@ -2443,7 +2541,34 @@ def build_options(program_rooms, frontage_ft, depth_ft, road_side,
     if not result["options"]:
         _try_wide_fallback(result, buckets, build_w, build_d, road,
                            num_toilets, directives, angle)
+    _variety_glass(result["options"])
     return result
+
+
+def _variety_glass(options):
+    """Glass partition + sliding door between dining and family living
+    in one option (C first) for variety. Only where the two share a
+    6 ft+ run that is not already one open space; best-effort, silent
+    when no option qualifies. Drawing + note only: the run already
+    joins the spaces, so checked rules are unaffected.
+    """
+    for opt in reversed(options):
+        names = {r["name"]: r for r in opt["placements"]}
+        dining, family = names.get("Dining"), names.get("Family Living")
+        if dining is None or family is None:
+            continue
+        if ("Dining", "Family Living") in opt["open_plan"] \
+                or ("Family Living", "Dining") in opt["open_plan"]:
+            continue
+        if any("Dining" in pair and "Family Living" in pair
+               for pair in opt["glass_partitions"]):
+            return
+        if shared_wall(dining, family) >= 6 - EPS:
+            opt["glass_partitions"].append(("Dining", "Family Living"))
+            opt["notes"].append("Glass partition with a sliding glass "
+                                "door between Dining and Family Living "
+                                "(variety).")
+            return
 
 
 def _try_wide_fallback(result, buckets, build_w, build_d, road,

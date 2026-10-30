@@ -8,22 +8,28 @@
 # always agree: one placement, two readers.
 #
 # Door table (widths in ft, 4 in off true corners, never clashing;
-# a T-junction partition is not a corner, so no clearance is owed it):
+# a T-junction partition is not a corner, so no clearance is owed it).
+# Every door hugs a corner (4-6 in return), hinged on the corner side,
+# swinging against the wall; none is ever centered:
 #   entry 3.5: porch -> foyer (swings into the foyer);
-#   room 3.0: hub rooms (foyer, living, dining, family) join over the
-#     shared walls they really have, spine order first; skipped between
-#     open-plan pairs, whose wall stays open;
+#   spaces: foyer, living, dining, family are open SPACES in one area:
+#     wide openings with short wall stubs between them, never doors;
 #   bedroom 3.0: bedroom -> family living, else dining, NEVER living/foyer;
-#   kitchen 3.0: kitchen -> dining (unless open-merged with a hub room:
-#     one space needs no door), plus 2.5 to its own veranda;
-#   toilet 2.5: attached bath -> its own bedroom only; common bath ->
-#     dining or family living; storage -> nearest hub room;
+#   kitchen 3.0: kitchen -> dining at the corner farthest from the
+#     living room (unless open-merged or glass-partitioned to dining or
+#     family: one space / a slider needs no swing door), plus 2.5 to
+#     its own veranda. The kitchen never connects to the living room;
+#   toilet 2.5: attached bath -> its dressing wardrobe (which opens to
+#     the bedroom), else its own bedroom directly; common bath -> dining
+#     or family living; wardrobe/store -> its bedroom, else a hub space;
 #   veranda 2.5: each veranda gets one door from its own room.
 # Window table (exterior walls, or walls facing the room's own veranda):
-#   bedroom 4.0 (two preferred, opposite walls when possible), living 5.0,
-#   dining/family 4.0, kitchen 3.0, toilet 2.0 high, NEVER on the road side
-#   (the local S wall faces the road). South/southeast preferred, west
-#   avoided; bearings are plot-relative (0 = plot north = the north angle).
+#   bedroom 4.0 (two preferred, opposite walls when possible; a front
+#   bedroom always takes its road-side window), living 5.0, dining 4.0,
+#   family 5.0 on the back wall, foyer 3.0 glazing on the sides, kitchen
+#   3.0, toilet 2.0 high. Kitchen and toilet windows NEVER face the road
+#   (the local S wall); bedrooms may. South/southeast preferred, west
+#   avoided; bearings are plot-relative (0 = plot north = north angle).
 
 EPS = 1e-6
 
@@ -47,6 +53,16 @@ OPEN_TYPES = ("garden", "veranda", "porch")
 
 # Rect types drawn with thin outlines instead of solid walls (open air).
 UNWALLED_TYPES = ("garden", "veranda", "porch")
+
+# Open SPACES (foyer, living, dining, family) join in one continuous area:
+# no doors between them, only wide openings with short wall stubs (2 ft
+# each end, 6 ft minimum run) or glass partitions.
+SPACE_TYPES = ("foyer", "living room", "dining", "family living")
+STUB_FT = 2.0
+MIN_OPEN_RUN_FT = 6.0
+
+FOYER_WIN_FT = 3.0
+FAMILY_WIN_FT = 5.0
 
 
 def _overlap_1d(a0, a1, b0, b1):
@@ -159,6 +175,45 @@ def _window_rank(side, north_angle):
     return target
 
 
+def _run_fits_window(rect, rects, side, start, end, width, keepouts):
+    """Gap center for a window inside one exterior run, None if none.
+
+    The single source of truth for "this run takes this window": the
+    placer and rule 6's road-window check both call it, so the checker
+    can only demand what the placer could have placed.
+    """
+    if end - start < width - EPS:
+        return None
+    low_clr = _wall_end_clearance(rect, side, 0, rects)
+    high_clr = _wall_end_clearance(rect, side, 1, rects)
+    center = _gap_center(_wall_length(rect, side), width,
+                         (start + end) / 2.0, keepouts, low_clr,
+                         high_clr)
+    if center is None:
+        return None
+    if center - width / 2.0 < start - EPS \
+            or center + width / 2.0 > end + EPS:
+        return None
+    return center
+
+
+def wall_fits_window(rect, rects, doors, side, width):
+    """True when a width-long window fits a wall beside placed doors."""
+    keepouts = []
+    for door in doors:
+        if door.get("sides", {}).get(rect["name"]) != side:
+            continue
+        span = _interval_on_wall(rect, side, door["x0"], door["y0"],
+                                 door["x1"], door["y1"])
+        if span is not None:
+            keepouts.append(span)
+    for start, end in _exterior_runs(rect, rects)[side]:
+        if _run_fits_window(rect, rects, side, start, end, width,
+                            keepouts) is not None:
+            return True
+    return False
+
+
 def _wall_end_clearance(rect, side, end, rects):
     """Corner clearance (ft) at one wall end: 4 in at a true corner, 0
     where another indoor room continues the same wall plane past the
@@ -248,10 +303,11 @@ def _gap_center(length, width, prefer, keepouts, low_clr=None,
 class _Placer:
     """Positions door/window gaps wall by wall, clash-free."""
 
-    def __init__(self, rects, open_pairs=None):
+    def __init__(self, rects, open_pairs=None, glass_pairs=None):
         self.rects = rects
         self.by_name = {r["name"]: r for r in rects}
         self.open_pairs = open_pairs or set()
+        self.glass_pairs = glass_pairs or set()
         self.doors = []
         self.windows = []
         self.problems = []  # door misses: rule 12 fails on these
@@ -284,8 +340,13 @@ class _Placer:
             return (side, (lo + hi) / 2.0 - ey0)
         return None
 
-    def _fit_side(self, host_name, other_name, width, prefer="mid"):
-        """(side, center) for a door on one room's wall, None if none."""
+    def _fit_side(self, host_name, other_name, width, prefer="corner",
+                  target=None):
+        """(side, center) for a door on one room's wall, None if none.
+
+        prefer "corner" hugs the run's start corner (never centered);
+        "far" hugs whichever run end lies nearer the target point.
+        """
         host = self.by_name[host_name]
         other = self.by_name[other_name]
         runs = _shared_with(host, other)
@@ -295,10 +356,19 @@ class _Placer:
                 continue
             low_clr = _wall_end_clearance(host, side, 0, self.rects)
             high_clr = _wall_end_clearance(host, side, 1, self.rects)
-            if prefer == "start":
-                wish = start + width / 2.0
-            else:
+            if prefer == "far" and target is not None:
+                near_start = _point_on_wall(host, side, start + width / 2.0)
+                near_end = _point_on_wall(host, side, end - width / 2.0)
+                dist_start = abs(near_start[0] - target[0]) \
+                    + abs(near_start[1] - target[1])
+                dist_end = abs(near_end[0] - target[0]) \
+                    + abs(near_end[1] - target[1])
+                wish = start + width / 2.0 if dist_start <= dist_end \
+                    else end - width / 2.0
+            elif prefer == "mid":
                 wish = (start + end) / 2.0
+            else:
+                wish = start + width / 2.0
             center = _gap_center(_wall_length(host, side), width, wish,
                                  self._keepouts(host_name, side), low_clr,
                                  high_clr)
@@ -310,21 +380,31 @@ class _Placer:
             return (side, center)
         return None
 
+    def _corner_gap(self, host_name, fit, width):
+        """Nearer edge-to-wall-end distance for a fit, +inf if none."""
+        if fit is None:
+            return float("inf")
+        side, center = fit
+        length = _wall_length(self.by_name[host_name], side)
+        return min(center - width / 2.0, length - (center + width / 2.0))
+
     def _add_door(self, kind, width, room, into, swing,
-                  prefer="mid"):
+                  prefer="corner", target=None):
         host = self.by_name.get(room)
         other = self.by_name.get(into)
         if host is None or other is None:
             self.problems.append("no %s door: %s or %s missing"
                                  % (kind, room, into))
             return False
-        # Either room's wall can carry the gap (same physical wall); the
-        # overlap often sits mid-wall on one side, at a corner other.
-        fit = self._fit_side(room, into, width, prefer)
-        wall_room = room
-        if fit is None:
-            fit = self._fit_side(into, room, width, prefer)
-            wall_room = into
+        # Either room's wall can carry the gap (same physical wall);
+        # the side hugging a true corner best wins (ties: room side).
+        room_fit = self._fit_side(room, into, width, prefer, target)
+        into_fit = self._fit_side(into, room, width, prefer, target)
+        if self._corner_gap(into, into_fit, width) < \
+                self._corner_gap(room, room_fit, width):
+            fit, wall_room = into_fit, into
+        else:
+            fit, wall_room = room_fit, room
         if fit is None:
             self.problems.append("%s door %s -> %s does not fit"
                                  % (kind, room, into))
@@ -340,44 +420,36 @@ class _Placer:
             if located is not None:
                 sides[name] = located[0]
                 self._record(name, located[0], located[1], width)
+        # Hinged on the corner side: whichever gap end stands nearer a
+        # wall end carries the hinge (ties hinge at the gap start).
+        wall_len = _wall_length(wall_host, side)
+        hinge = 0 if center - width / 2.0 \
+            <= wall_len - (center + width / 2.0) else 1
         self.doors.append({"kind": kind, "width": width, "room": room,
                            "into": into, "wall": side,
                            "wall_room": wall_room, "swing": swing,
-                           "sides": sides,
+                           "sides": sides, "hinge": hinge,
                            "x0": x0, "y0": y0, "x1": x1, "y1": y1})
         return True
 
-    def _try_silent(self, kind, width, room, into, swing):
-        """Best-effort door: no problem recorded on a miss."""
-        before = len(self.problems)
-        placed = self._add_door(kind, width, room, into, swing)
-        if not placed:
-            del self.problems[before:]
-        return placed
-
-    def _add_window(self, room, width, north_angle, ban_sides=()):
+    def _add_window(self, room, width, north_angle, ban_sides=(),
+                    first_side=None):
         host = self.by_name.get(room)
         if host is None:
             return False
         runs = _exterior_runs(host, self.rects)
         sides = sorted(("N", "S", "E", "W"),
                        key=lambda s: _window_rank(s, north_angle))
+        if first_side in sides and runs[first_side]:
+            sides = [first_side] + [s for s in sides if s != first_side]
         for side in sides:
             if side in ban_sides:
                 continue
             for start, end in runs[side]:
-                if end - start < width - EPS:
-                    continue
-                low_clr = _wall_end_clearance(host, side, 0, self.rects)
-                high_clr = _wall_end_clearance(host, side, 1, self.rects)
-                center = _gap_center(_wall_length(host, side), width,
-                                     (start + end) / 2.0,
-                                     self._keepouts(room, side), low_clr,
-                                     high_clr)
+                center = _run_fits_window(
+                    host, self.rects, side, start, end, width,
+                    self._keepouts(room, side))
                 if center is None:
-                    continue
-                if center - width / 2.0 < start - EPS \
-                        or center + width / 2.0 > end + EPS:
                     continue
                 self._record(room, side, center, width)
                 x0, y0 = _point_on_wall(host, side, center - width / 2.0)
@@ -415,19 +487,28 @@ def _subtract_spans(runs, cuts):
     return out
 
 
-def wall_segments(rects, doors, windows, open_plan=None):
+def wall_segments(rects, doors, windows, open_plan=None,
+                  glass_pairs=None):
     """Solid wall bands for the drawing: [{"x0".."y1", "kind"}].
 
     Local plot coordinates (feet), already thickened: 10 in exterior,
     5 in interior, centered on each room edge. Door/window gaps are
-    subtracted; open-plan pairs share no wall at all. Porch, verandas
-    and gardens are open air (their rooms' walls still stand).
+    subtracted; open-plan pairs share no wall at all. Open spaces meet
+    over wide openings with 2 ft wall stubs (runs under 6 ft stay solid
+    walls); glass pairs meet over a glass partition (kind "glass",
+    drawn as thin double lines, zero thickness). Porch, verandas and
+    gardens are open air (their rooms' walls still stand).
     """
     open_pairs = set()
     for pair in open_plan or []:
         names = list(pair)
         if len(names) >= 2:
             open_pairs.add(frozenset(names[:2]))
+    glass = set()
+    for pair in glass_pairs or []:
+        names = list(pair)
+        if len(names) >= 2:
+            glass.add(frozenset(names[:2]))
     by_name = {r["name"]: r for r in rects}
     gaps = {}
     for door in doors:
@@ -453,17 +534,30 @@ def wall_segments(rects, doors, windows, open_plan=None):
             continue
         for side in ("N", "S", "E", "W"):
             length = _wall_length(rect, side)
-            shared, open_run = [], []
+            shared, open_run, glass_run, stubs, spanned = [], [], [], [], []
             for other in rects:
                 if other is rect \
                         or other["type"] in UNWALLED_TYPES:
                     continue
                 pair = frozenset((rect["name"], other["name"]))
+                both_spaces = rect["type"] in SPACE_TYPES \
+                    and other["type"] in SPACE_TYPES
                 for run_side, start, end in _shared_with(rect, other):
-                    if run_side == side:
-                        (open_run if pair in open_pairs
-                         else shared).append((start, end))
-            blocked = sorted(shared + open_run)
+                    if run_side != side:
+                        continue
+                    if pair in open_pairs:
+                        open_run.append((start, end))
+                    elif pair in glass:
+                        glass_run.append((start, end))
+                    elif both_spaces and end - start >= MIN_OPEN_RUN_FT \
+                            - EPS:
+                        stubs.append((start, start + STUB_FT))
+                        stubs.append((end - STUB_FT, end))
+                        spanned.append((start, end))
+                    else:
+                        shared.append((start, end))
+            blocked = sorted(shared + open_run + glass_run + spanned
+                             + stubs)
             covered = []
             for start, end in blocked:
                 if covered and start <= covered[-1][1] + EPS:
@@ -481,10 +575,18 @@ def wall_segments(rects, doors, windows, open_plan=None):
             for start, end in _subtract_spans(exterior, cuts):
                 segments.append(_thick_rect(rect, side, start, end,
                                             EXT_WALL_FT, "ext"))
-            for start, end in _subtract_spans(shared, cuts):
+            for start, end in _subtract_spans(shared + stubs, cuts):
                 segments.append(_thick_rect(rect, side, start, end,
                                             INT_WALL_FT, "int"))
+            for start, end in glass_run:
+                x0, y0 = _point_on_wall(rect, side, start)
+                x1, y1 = _point_on_wall(rect, side, end)
+                segments.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1,
+                                 "kind": "glass"})
     return segments
+
+
+shared_runs = _shared_with
 
 
 def _thick_rect(rect, side, start, end, thick, kind):
@@ -572,26 +674,36 @@ def audit_gaps(rects, doors, windows):
     return violations
 
 
-def place_openings(rects, open_plan=None, north_angle=0.0):
+def place_openings(rects, open_plan=None, north_angle=0.0,
+                   glass_pairs=None):
     """Place every door and window. Returns {"doors", "windows",
     "problems"} in local plot coordinates (feet).
 
     open_plan: [(name_a, name_b)] pairs whose shared wall stays open (no
-    wall, no door between them). problems: human-readable misses the
-    checker reports (missing doors, clashes, walls too short).
+    wall, no door between them). glass_pairs: [(name_a, name_b)] pairs
+    joined by a glass partition with a slider (drawn, not a swing door).
+    problems: human-readable misses the checker reports.
     """
     open_pairs = set()
     for pair in open_plan or []:
         names = list(pair)
         if len(names) >= 2:
             open_pairs.add(frozenset(names[:2]))
-    placer = _Placer(rects, open_pairs)
+    glass = set()
+    for pair in glass_pairs or []:
+        names = list(pair)
+        if len(names) >= 2:
+            glass.add(frozenset(names[:2]))
+    placer = _Placer(rects, open_pairs, glass)
     by_type = {}
     for rect in rects:
         by_type.setdefault(rect["type"], []).append(rect)
 
     def is_open(first, second):
         return frozenset((first, second)) in open_pairs
+
+    def is_glass(first, second):
+        return frozenset((first, second)) in glass
 
     # Entry: porch -> foyer, swings into the foyer.
     porches = by_type.get("porch", [])
@@ -602,30 +714,30 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
     elif foyers:
         placer.problems.append("no entry door: porch missing")
 
-    # Hub rooms (foyer, living, dining, family) join over the shared
-    # walls they really have: the spine order first, then every other
-    # hub pair. Open-plan pairs share one space (no door, no wall).
-    # Single links are best-effort; only a disconnected hub is a miss.
+    # Open spaces (foyer, living, dining, family) form one continuous
+    # area: never doors between them, only wide stubbed openings, open
+    # plans and glass partitions. Only a disconnected space is a miss.
     living = _first_of(rects, "Living Room")
     dining = _first_of(rects, "Dining")
     family = _first_of(rects, "Family Living")
     foyer = foyers[0]["name"] if foyers else ""
     hubs = [name for name in (foyer, living, dining, family) if name]
-    for first, second in ((foyer, living), (living, dining),
-                          (dining, family), (foyer, dining),
-                          (foyer, family), (living, family)):
-        if first and second and not is_open(first, second):
-            placer._try_silent("room", ROOM_W_FT, first, second, second)
     if hubs:
+        by_name = placer.by_name
         seen, queue = {hubs[0]}, [hubs[0]]
         links = {}
-        for door in placer.doors:
-            links.setdefault(door["room"], []).append(door["into"])
-            links.setdefault(door["into"], []).append(door["room"])
-        for pair in open_pairs:  # one open space joins better than a door
-            names = list(pair)
-            links.setdefault(names[0], []).append(names[1])
-            links.setdefault(names[1], []).append(names[0])
+        for first in hubs:
+            for second in hubs:
+                if first >= second:
+                    continue
+                wide = any(end - start >= MIN_OPEN_RUN_FT - EPS
+                           for _side, start, end
+                           in _shared_with(by_name[first],
+                                           by_name[second]))
+                if wide or is_open(first, second) \
+                        or is_glass(first, second):
+                    links.setdefault(first, []).append(second)
+                    links.setdefault(second, []).append(first)
         while queue:
             for nxt in links.get(queue.pop(0), []):
                 if nxt in hubs and nxt not in seen:
@@ -634,7 +746,7 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
         for name in hubs:
             if name not in seen:
                 placer.problems.append(
-                    "%s has no door into the hub rooms" % name)
+                    "%s has no opening into the open spaces" % name)
 
     # Bedrooms -> family, else dining (never living/foyer).
     fams = [r["name"] for r in by_type.get("family living", [])]
@@ -651,29 +763,91 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
             placer.problems.append("bedroom door %s -> family/dining "
                                    "does not fit" % bed["name"])
 
-    # Kitchen -> dining (unless open-merged with a hub room: one
-    # space needs no door), plus one to its own veranda. Veranda doors
-    # hug the run's start so the room's window still fits beside them.
+    # Kitchen -> dining at the kitchen corner farthest from the
+    # living room (unless open-merged or glass-partitioned to dining or
+    # family: one space / a slider needs no swing door), plus one to its
+    # own veranda. The kitchen never connects to the living room.
+    living_rect = placer.by_name.get(living, {}) if living else {}
     for kitchen in by_type.get("kitchen", []):
-        merged = any(is_open(kitchen["name"], hub) for hub in hubs)
+        merged = any(is_open(kitchen["name"], hub) or
+                     is_glass(kitchen["name"], hub) for hub in hubs)
         if dins and not merged:
+            corners = [(kitchen["x"], kitchen["y"]),
+                       (kitchen["x"] + kitchen["w"], kitchen["y"]),
+                       (kitchen["x"], kitchen["y"] + kitchen["d"]),
+                       (kitchen["x"] + kitchen["w"],
+                        kitchen["y"] + kitchen["d"])]
+            if living_rect:
+                anchor = (living_rect["x"] + living_rect["w"] / 2.0,
+                          living_rect["y"] + living_rect["d"] / 2.0)
+            elif dining:
+                dine = placer.by_name[dining]
+                anchor = (dine["x"] + dine["w"] / 2.0,
+                          dine["y"] + dine["d"] / 2.0)
+            else:
+                anchor = (kitchen["x"] + kitchen["w"] / 2.0,
+                          kitchen["y"] + kitchen["d"] / 2.0)
+            far = max(corners,
+                      key=lambda c: abs(c[0] - anchor[0])
+                      + abs(c[1] - anchor[1]))
             placer._add_door("room", ROOM_W_FT, kitchen["name"], dins[0],
-                             kitchen["name"])
+                             kitchen["name"], prefer="far", target=far)
         elif not dins and not merged:
             placer.problems.append("no room door: %s or Dining missing"
                                    % kitchen["name"])
         for veranda in by_type.get("veranda", []):
             if veranda.get("veranda_for") == kitchen["name"]:
                 placer._add_door("veranda", VERANDA_W_FT, kitchen["name"],
-                                 veranda["name"], kitchen["name"],
-                                 prefer="start")
+                                 veranda["name"], kitchen["name"])
 
-    # Bathrooms: attached -> own bedroom only; common -> dining/family.
+    # Wardrobe/store: opens to its bedroom as a dressing lobby, else to
+    # a hub space, else the kitchen, else a bath. No sealed boxes.
+    dressings = by_type.get("wardrobe", []) + by_type.get("storage", [])
+    bed_names = [r["name"] for r in by_type.get("bedroom", [])]
+    hub_names = [r["name"] for kind in
+                 ("family living", "dining", "living room", "foyer")
+                 for r in by_type.get(kind, [])]
+    kitchen_names = [r["name"] for r in by_type.get("kitchen", [])]
+    bath_names = [r["name"] for r in by_type.get("bathroom", [])]
+    for store in dressings:
+        placed = False
+        for target in bed_names + hub_names + kitchen_names:
+            if placer._add_door("room", ROOM_W_FT, store["name"], target,
+                                target):
+                placed = True
+                break
+            placer.problems.pop()
+        if not placed:
+            for target in bath_names:
+                if placer._add_door("toilet", TOILET_W_FT, store["name"],
+                                    target, target):
+                    placed = True
+                    break
+                placer.problems.pop()
+        if not placed:
+            placer.problems.append("%s has no door out (sealed box)"
+                                   % store["name"])
+
+    # Bathrooms: attached -> its dressing wardrobe when the wardrobe
+    # opens to the bedroom (reached through it), else its own bedroom
+    # directly; common -> dining/family.
     for bath in by_type.get("bathroom", []):
         if bath.get("bathroom_kind") == "attached" and bath.get(
                 "attached_to"):
-            placer._add_door("toilet", TOILET_W_FT, bath["name"],
-                             bath["attached_to"], bath["name"])
+            chained = False
+            for store in dressings:
+                pair = {store["name"], bath["attached_to"]}
+                if not any({d["room"], d["into"]} == pair
+                           for d in placer.doors):
+                    continue
+                if placer._add_door("toilet", TOILET_W_FT, bath["name"],
+                                    store["name"], bath["name"]):
+                    chained = True
+                    break
+                placer.problems.pop()
+            if not chained:
+                placer._add_door("toilet", TOILET_W_FT, bath["name"],
+                                 bath["attached_to"], bath["name"])
         else:
             placed = False
             for target in dins + fams:
@@ -686,22 +860,6 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
                 placer.problems.append(
                     "common toilet door %s -> dining/family does not fit"
                     % bath["name"])
-
-    # Storage -> nearest hub room.
-    for store in by_type.get("storage", []):
-        placed = False
-        hubs = [r["name"] for kind in
-                ("kitchen", "dining", "family living", "living room",
-                 "foyer") for r in by_type.get(kind, [])]
-        for target in hubs:
-            if placer._add_door("room", ROOM_W_FT, store["name"], target,
-                                store["name"]):
-                placed = True
-                break
-            placer.problems.pop()
-        if not placed:
-            placer.problems.append("storage door %s has no hub wall"
-                                   % store["name"])
 
     # Each veranda: one door from its own room.
     for veranda in by_type.get("veranda", []):
@@ -716,9 +874,12 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
         placer._add_door("veranda", VERANDA_W_FT, host, veranda["name"],
                          host, prefer="start")
 
-    # Windows: bedrooms two preferred (opposite wall first).
+    # Windows: bedrooms two preferred (opposite wall first); a front
+    # bedroom always takes its road-side (S) window first.
     for bed in by_type.get("bedroom", []):
-        first = placer._add_window(bed["name"], BED_WIN_FT, north_angle)
+        south = _exterior_runs(bed, rects)["S"]
+        first = placer._add_window(bed["name"], BED_WIN_FT, north_angle,
+                                   first_side="S" if south else None)
         if not first:
             placer.window_notes.append("no window wall for %s"
                                        % bed["name"])
@@ -736,15 +897,32 @@ def place_openings(rects, open_plan=None, north_angle=0.0):
                                   north_angle):
             placer.window_notes.append("no window wall for %s"
                                        % room["name"])
-    for room in by_type.get("dining", []) + by_type.get("family living",
-                                                        []):
+    for room in by_type.get("dining", []):
         if not placer._add_window(room["name"], COMMON_WIN_FT,
                                   north_angle):
             placer.window_notes.append("no window wall for %s"
                                        % room["name"])
+    for room in by_type.get("family living", []):
+        north = _exterior_runs(room, rects)["N"]
+        if not placer._add_window(room["name"], FAMILY_WIN_FT,
+                                  north_angle,
+                                  first_side="N" if north else None):
+            placer.window_notes.append("no window wall for %s"
+                                       % room["name"])
+    for room in by_type.get("foyer", []):
+        # Side glazing for daylight: one window per side wall at most.
+        if not placer._add_window(room["name"], FOYER_WIN_FT,
+                                  north_angle, ban_sides=("N", "S")):
+            placer.window_notes.append("no window wall for %s"
+                                       % room["name"])
+        else:
+            used = [w["wall"] for w in placer.windows
+                    if w["room"] == room["name"]][0]
+            placer._add_window(room["name"], FOYER_WIN_FT, north_angle,
+                               ban_sides=("N", "S", used))
     for room in by_type.get("kitchen", []):
         if not placer._add_window(room["name"], KITCHEN_WIN_FT,
-                                  north_angle):
+                                  north_angle, ban_sides=("S",)):
             placer.window_notes.append("no window wall for %s"
                                        % room["name"])
     for bath in by_type.get("bathroom", []):

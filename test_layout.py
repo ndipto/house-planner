@@ -20,7 +20,8 @@ from ai_program import (
 from draw import svg_plan, svg_plot_preview
 from layout import (RELAXED_RANGES, _check_all, livability_verdict,
                     shared_wall)
-from openings import audit_gaps, place_openings, wall_segments
+from openings import (SPACE_TYPES, audit_gaps, place_openings,
+                     wall_segments)
 from typology import build_options
 
 
@@ -153,6 +154,7 @@ def _svg_for(option, plot):
     """Adapt one option to the svg_plan() plan shape (mirrors the app)."""
     return {"ok": True, "placements": option["placements"],
             "open_plan": option.get("open_plan", []),
+            "glass_partitions": option.get("glass_partitions", []),
             "plot": {"w": plot["width"], "d": plot["depth"],
                      "road": plot["road"],
                      "north_angle": plot.get("north_angle", 0)}}
@@ -227,7 +229,12 @@ def test_typology_options():
 
 
 def test_fit_wishes_45x55():
-    """45x55 South 2-bed + wishes: open plan + garden, all LIVABLE."""
+    """45x55 South 2-bed + wishes: refused kitchen merge + garden.
+
+    Architect round 1: the kitchen always stays enclosed (Bangladeshi
+    cooking), so "combined living and kitchen" reads SKIPPED with the
+    glass-to-dining alternative noted; the garden still lands.
+    """
     result = build_options(PROGRAM_2BED, 45, 55, "South", 2, WISHES_45)
     options = result["options"]
     assert len(options) == 3, "all three options fit inside the plot"
@@ -237,16 +244,24 @@ def test_fit_wishes_45x55():
         assert _rule_status(opt, "18") == "PASS", "real toilet sizes"
         _assert_clean(opt, result["buildable"], result["plot"])
     by_label = {o["label"]: o for o in options}
-    assert ("Kitchen", "Living Room") in by_label["A"]["open_plan"], \
-        "A merges living + kitchen into one gathering space"
+    assert ("Kitchen", "Living Room") not in by_label["A"]["open_plan"] \
+        and ("Living Room", "Kitchen") not in by_label["A"]["open_plan"], \
+        "A never merges the kitchen into the living room"
     wishes_a = {w["wish"]: w["status"] for w in by_label["A"]["wishes"]}
-    assert wishes_a["Open plan: kitchen + living room"] == "MET"
+    assert wishes_a["Glass partition: kitchen + living room"] \
+        == "SKIPPED"
     assert wishes_a["Garden with the living room"] == "MET"
+    assert any("glass partition" in note.lower()
+               for note in result["notes"] + by_label["A"]["notes"]), \
+        "the glass alternative is explained in the design notes"
     wishes_c = {w["wish"]: w["status"] for w in by_label["C"]["wishes"]}
-    assert wishes_c["Garden with the living room"] == "NOT MET", \
-        "C compares without the garden"
+    # Round 1: kitchens never merge, so C keeps the wished garden
+    # too (its no-garden variant was an emergent merge ordering).
+    assert wishes_c["Garden with the living room"] == "MET"
+    # Round 1: C keeps the garden now; its middle dining is windowless
+    # (rule 17, the known honest limit - never flips the verdict).
     assert [r["id"] for r in by_label["C"]["rules"]
-            if r["status"] == "FAIL"] == [], "C has zero fails"
+            if r["status"] == "FAIL"] == ["17"], "C misses 17 only"
     garden = [r for r in by_label["A"]["placements"]
               if r["type"] == "garden"]
     assert len(garden) == 1, "A places the wished garden"
@@ -257,7 +272,7 @@ def test_fit_wishes_45x55():
         "garden buffers the living room's front wall"
     assert garden[0]["x"] == living["x"] \
         and garden[0]["w"] == living["w"], "garden spans the living front"
-    print("PASS test_fit_wishes_45x55 (open plan + garden, all livable)")
+    print("PASS test_fit_wishes_45x55 (refused merge + garden, all livable)")
 
 
 def test_svg_rotation():
@@ -681,16 +696,20 @@ def test_t1_40x60_north_3bed():
 
 def test_t2_45x55_south_combined_garden():
     """T2: 45x55 road South, combined living+kitchen + garden. Bar: a
-    livable option with both wishes MET."""
+    livable option with the garden MET and the kitchen merge honestly
+    SKIPPED (architect round 1: enclosed kitchen, glass alternative)."""
     wishes = ("combined living and kitchen for family gathering, "
               "small garden beside the living room")
     result = build_options(PROGRAM_2BED, 45, 55, "South", 2, wishes)
     good = [o for o in _livable_options(result)
-            if _wish_map(o).get("Open plan: kitchen + living room")
-            == "MET"
+            if _wish_map(o).get("Glass partition: kitchen + living room")
+            == "SKIPPED"
             and _wish_map(o).get("Garden with the living room")
             == "MET"]
-    assert good, "T2 needs a LIVABLE option with both wishes MET"
+    assert good, "T2 needs a LIVABLE option, garden MET, merge SKIPPED"
+    assert any("glass partition" in note.lower()
+               for note in result["notes"] + good[0]["notes"]), \
+        "the glass alternative is explained"
     _assert_clean(good[0], result["buildable"], result["plot"])
     print("PASS test_t2_45x55_south_combined_garden")
 
@@ -838,12 +857,17 @@ def test_doors_windows_placed():
                and "Dining" in (d["room"], d["into"]) for d in doors), \
         "kitchen door into dining"
     for bath, host in (("Bath 1", "Bedroom 1"), ("Bath 2", "Bedroom 2")):
-        hits = [d for d in doors if bath in (d["room"], d["into"])]
+        hits = [d for d in doors if d["room"] == bath]
         assert len(hits) == 1 and hits[0]["width"] == 2.5, \
             "%s toilet door 2'-6\"" % bath
-        other = hits[0]["into"] if hits[0]["room"] == bath \
-            else hits[0]["room"]
-        assert other == host, "%s opens only into %s" % (bath, host)
+        other = hits[0]["into"]
+        if other == host:
+            continue  # direct door (no dressing lobby between)
+        assert by_name[other]["type"] in ("wardrobe", "storage"), \
+            "%s opens into its dressing %s" % (bath, other)
+        assert any({d["room"], d["into"]} == {other, host}
+                   for d in doors), \
+            "%s opens on to %s" % (other, host)
     verandas = [r for r in opt["placements"] if r["type"] == "veranda"]
     assert verandas, "T1-A has verandas"
     for veranda in verandas:
@@ -920,6 +944,86 @@ def test_svg_walls_doors_windows():
     print("PASS test_svg_walls_doors_windows")
 
 
+def test_architect_round1():
+    """Architect review round 1: spaces, corner doors, glass, road rules."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    by_label = {o["label"]: o for o in result["options"]}
+    opt = by_label["A"]
+    names = {r["name"]: r for r in opt["placements"]}
+    placed = place_openings(opt["placements"], opt["open_plan"], 0.0,
+                            opt["glass_partitions"])
+    spaces = {n for n, r in names.items() if r["type"] in SPACE_TYPES}
+    for door in placed["doors"]:
+        assert not ({door["room"], door["into"]} <= spaces), \
+            "no door between open spaces"
+        assert door["hinge"] in (0, 1), "hinge recorded"
+        host = names[door["wall_room"]]
+        side = door["wall"]
+        length = host["w"] if side in ("N", "S") else host["d"]
+        if side in ("N", "S"):
+            lo = min(door["x0"], door["x1"]) - host["x"]
+            hi = max(door["x0"], door["x1"]) - host["x"]
+        else:
+            lo = min(door["y0"], door["y1"]) - host["y"]
+            hi = max(door["y0"], door["y1"]) - host["y"]
+        assert min(lo, length - hi) <= 0.6, \
+            "door %s hugs a corner" % door["room"]
+    segs = wall_segments(opt["placements"], placed["doors"],
+                         placed["windows"], opt["open_plan"],
+                         opt["glass_partitions"])
+    int_lens = [max(s["x1"] - s["x0"], s["y1"] - s["y0"])
+                for s in segs if s["kind"] == "int"]
+    assert any(abs(size - 2.0) < 0.05 for size in int_lens), \
+        "2 ft stub walls drawn between spaces"
+    pairs = [{d["room"], d["into"]} for d in placed["doors"]]
+    assert {"Bath 1", "Wardrobe (Bath 1)"} in pairs, "bath via dressing"
+    assert {"Wardrobe (Bath 1)", "Bedroom 1"} in pairs, "dressing to bed"
+    assert {"Bath 1", "Bedroom 1"} not in pairs, "no direct bath door"
+    for o in result["options"]:
+        assert _rule_status(o, "21") == "PASS", "kitchen off the road"
+    fam_wins = [w for w in placed["windows"]
+                if w["room"] == "Family Living"]
+    assert any(w["wall"] == "N" and w["width"] == 5.0
+               for w in fam_wins), "family gets its big back window"
+    glass_opts = [o["label"] for o in result["options"]
+                  if ("Dining", "Family Living")
+                  in o["glass_partitions"]]
+    assert glass_opts == ["C"], "variety glass lands on one option"
+    assert any("sliding glass door" in n for n in by_label["C"]["notes"])
+    t4 = build_options(PROGRAM_2BED, 50, 40, "South", 2,
+                       "open living and dining for family gathering. "
+                       "south facing master bedroom")
+    a4 = {o["label"]: o for o in t4["options"]}["A"]
+    rule4 = [x for x in a4["rules"] if x["id"] == "4"][0]
+    assert rule4["status"] == "PASS" and "far corner" in rule4["detail"]
+    p4 = place_openings(a4["placements"], a4["open_plan"], 0.0,
+                        a4["glass_partitions"])
+    assert any(w["room"] == "Bedroom 1" and w["wall"] == "S"
+               for w in p4["windows"]), "front bedroom road window"
+    t2 = build_options(PROGRAM_2BED, 45, 55, "South", 2,
+                       "combined living and kitchen for family gathering, "
+                       "small garden beside the living room")
+    c2 = {o["label"]: o for o in t2["options"]}["C"]
+    assert ("Kitchen", "Dining") in c2["glass_partitions"]
+    p2 = place_openings(c2["placements"], c2["open_plan"], 0.0,
+                        c2["glass_partitions"])
+    assert not any({d["room"], d["into"]} == {"Kitchen", "Dining"}
+                   for d in p2["doors"]), "slider, no swing door"
+    spine_ys = set()
+    for n in ("Foyer", "Living Room", "Dining", "Family Living"):
+        spine_ys.add(round(names[n]["y"], 2))
+        spine_ys.add(round(names[n]["y"] + names[n]["d"], 2))
+    sides = [r for r in opt["placements"]
+             if r["type"] in ("bedroom", "kitchen", "bathroom",
+                               "wardrobe", "storage")]
+    assert any(round(r["y"], 2) not in spine_ys
+               or round(r["y"] + r["d"], 2) not in spine_ys
+               for r in sides), "side rooms stagger off the spine lines"
+    svg = svg_plan(_svg_for(opt, result["plot"]))
+    assert svg.count("#d5e5cf") > 5, "leftover drawn as landscape"
+    print("PASS test_architect_round1 (12 rules honored)")
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
@@ -947,4 +1051,5 @@ if __name__ == "__main__":
     test_doors_windows_placed()
     test_door_bearing_nudge()
     test_svg_walls_doors_windows()
+    test_architect_round1()
     print("ALL LAYOUT TESTS PASSED")

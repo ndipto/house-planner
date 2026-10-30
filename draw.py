@@ -116,15 +116,23 @@ def svg_plan(result):
     # Road edge (extra-thick black line) + ROAD label outside it.
     parts.append(_road_edge(point, plot_w, plot_d, road, scale))
 
+    # Landscape: every plot cell outside a room rect reads green, so
+    # leftover space (setbacks, front corners) is never a void.
+    parts.append(_landscape(rooms, plot_w, plot_d, point))
     # Rooms: white fill, name + size + area (walled rooms lose their
     # outline; the solid wall bands drawn next replace it).
     for room in rooms:
         parts.append(_room_group(room, point, scale))
-    placed = place_openings(rooms, result.get("open_plan", []), angle)
+    glass = result.get("glass_partitions", [])
+    placed = place_openings(rooms, result.get("open_plan", []), angle,
+                            glass)
     for segment in wall_segments(rooms, placed["doors"],
                                  placed["windows"],
-                                 result.get("open_plan", [])):
-        parts.append(_wall_band(segment, point))
+                                 result.get("open_plan", []), glass):
+        if segment["kind"] == "glass":
+            parts.append(_glass_symbol(segment, point, scale))
+        else:
+            parts.append(_wall_band(segment, point))
     by_name = {r.get("name", ""): r for r in rooms}
     for door in placed["doors"]:
         parts.append(_door_symbol(door, by_name, point, scale))
@@ -226,10 +234,11 @@ def _room_group(room, point, scale):
         area = ""
     cx = x + width / 2
     dash = ' stroke-dasharray="7 4"' if room.get("type") == "garden" else ""
+    fill = "#d5e5cf" if str(room.get("type", "")) == "garden" else "#fff"
     if str(room.get("type", "")) in UNWALLED_TYPES:
         box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
-               'fill="#fff" stroke="#000" stroke-width="1.6"%s/>'
-               % (x, y, width, height, dash))
+               'fill="%s" stroke="#000" stroke-width="1.6"%s/>'
+               % (x, y, width, height, fill, dash))
     else:  # solid wall bands outline walled rooms; no stroke here
         box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
                'fill="#fff" stroke="none"/>'
@@ -270,10 +279,40 @@ def _wall_band(segment, point):
             % (min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)))
 
 
+def _landscape(rooms, plot_w, plot_d, point):
+    """Light-green fill over plot cells no room covers (never a void)."""
+    xs = sorted({0.0, plot_w} | {r["x"] for r in rooms}
+                | {r["x"] + r["w"] for r in rooms})
+    ys = sorted({0.0, plot_d} | {r["y"] for r in rooms}
+                | {r["y"] + r["d"] for r in rooms})
+    xs = [v for v in xs if 0.0 <= v <= plot_w]
+    ys = [v for v in ys if 0.0 <= v <= plot_d]
+    out = []
+    for x0, x1 in zip(xs, xs[1:]):
+        for y0, y1 in zip(ys, ys[1:]):
+            if x1 - x0 < 0.01 or y1 - y0 < 0.01:
+                continue
+            cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            covered = any(r["x"] - 0.01 <= cx <= r["x"] + r["w"] + 0.01
+                          and r["y"] - 0.01 <= cy <= r["y"] + r["d"] + 0.01
+                          for r in rooms)
+            if covered:
+                continue
+            ax, ay = point(x0, y0)
+            bx, by = point(x1, y1)
+            out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
+                       'fill="#d5e5cf" stroke="none"/>'
+                       % (min(ax, bx), min(ay, by), abs(bx - ax),
+                          abs(by - ay)))
+    return "".join(out)
+
+
 def _door_symbol(door, by_name, point, scale):
-    """Door leaf (open 90 deg) + swing arc across the wall gap."""
-    hx, hy = point(door["x0"], door["y0"])  # hinge at the gap start
-    ex, ey = point(door["x1"], door["y1"])  # gap end
+    """Door leaf (open 90 deg, against the wall) + swing arc."""
+    ends = [point(door["x0"], door["y0"]),
+            point(door["x1"], door["y1"])]
+    hx, hy = ends[door.get("hinge", 0)]  # hinge on the corner side
+    ex, ey = ends[1 - door.get("hinge", 0)]  # gap end
     swing = by_name.get(door.get("swing", ""), {})
     try:
         cx = float(swing["x"]) + float(swing["w"]) / 2.0
@@ -319,6 +358,13 @@ def _window_symbol(win, point, scale):
             'stroke-width="1"/>'
             % (ax + nx, ay + ny, bx + nx, by + ny,
                ax - nx, ay - ny, bx - nx, by - ny))
+
+
+def _glass_symbol(segment, point, scale):
+    """Glass partition: thin double lines along the run (slider noted)."""
+    return _window_symbol({"x0": segment["x0"], "y0": segment["y0"],
+                           "x1": segment["x1"], "y1": segment["y1"]},
+                          point, scale)
 
 
 def _road_edge(point, plot_w, plot_d, road, scale):

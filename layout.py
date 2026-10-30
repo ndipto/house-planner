@@ -38,7 +38,8 @@ from ai_program import (
     TOILET_W_RANGE,
     format_ft_in,
 )
-from openings import ROOM_W_FT, audit_gaps, place_openings
+from openings import (BED_WIN_FT, ROOM_W_FT, audit_gaps,
+                     place_openings, shared_runs, wall_fits_window)
 
 # --- Proposed size defaults (Day 2, architect to confirm, see note above) ---
 FOYER_MIN_FT = 6
@@ -728,8 +729,61 @@ def _route_crosses(path, rects):
 
 # --- Rule checker: all 12 hard rules + geometry + design goals ---
 
+def _check_far_corner(kitchen, livings, dinings, door):
+    """(ok, text): kitchen door at the far-from-living corner?
+
+    Only judged when the longest kitchen-dining run reaches 6 ft (a
+    real choice existed) and a living room or dining anchors the far
+    side; short runs just note the corner. The door passes in the run
+    half nearer the far corner (+6 in tolerance for keepout shifts).
+    """
+    anchor = None
+    if livings:
+        anchor = (livings[0]["x"] + livings[0]["w"] / 2.0,
+                  livings[0]["y"] + livings[0]["d"] / 2.0)
+    elif dinings:
+        anchor = (dinings[0]["x"] + dinings[0]["w"] / 2.0,
+                  dinings[0]["y"] + dinings[0]["d"] / 2.0)
+    if anchor is None:
+        return True, ""
+    corners = [(kitchen["x"], kitchen["y"]),
+               (kitchen["x"] + kitchen["w"], kitchen["y"]),
+               (kitchen["x"], kitchen["y"] + kitchen["d"]),
+               (kitchen["x"] + kitchen["w"],
+                kitchen["y"] + kitchen["d"])]
+    far = max(corners, key=lambda c: abs(c[0] - anchor[0])
+              + abs(c[1] - anchor[1]))
+    runs = []
+    for dining in dinings:
+        runs.extend(shared_runs(kitchen, dining))
+    if not runs:
+        return True, ""
+    cx = (door["x0"] + door["x1"]) / 2.0
+    cy = (door["y0"] + door["y1"]) / 2.0
+    half = door["width"] / 2.0 + 0.5
+    owned = [run for run in runs
+             if run[0] in ("N", "S") and run[1] - half
+             <= cx - kitchen["x"] <= run[2] + half
+             or run[0] in ("E", "W") and run[1] - half
+             <= cy - kitchen["y"] <= run[2] + half]
+    side, start, end = max(owned or runs, key=lambda r: r[2] - r[1])
+    if side in ("N", "S"):
+        center, base = cx - kitchen["x"], kitchen["x"]
+        ends = [(base + start, cy), (base + end, cy)]
+    else:
+        center, base = cy - kitchen["y"], kitchen["y"]
+        ends = [(cx, base + start), (cx, base + end)]
+    near = start if abs(ends[0][0] - far[0]) + abs(ends[0][1] - far[1]) \
+        <= abs(ends[1][0] - far[0]) + abs(ends[1][1] - far[1]) else end
+    if end - start < 6 - EPS:
+        return True, "short bearing, corner noted"
+    if abs(center - near) <= (end - start) / 2.0 + 0.5:
+        return True, "at the far corner"
+    return False, "NOT at the far corner"
+
+
 def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
-               north_angle=None, open_plan=None):
+               north_angle=None, open_plan=None, glass_pairs=None):
     """Check one placed plan. Returns (rules, goals, quality).
 
     rules: [{id, name, status, detail}] with status PASS/BEND/FAIL.
@@ -744,7 +798,8 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
     beds = [r for r in rects if r["type"] == "bedroom"]
     verandas = [r for r in rects if r["type"] == "veranda"]
     placed = place_openings(rects, open_plan,
-                            _resolve_angle(road_side, north_angle))
+                            _resolve_angle(road_side, north_angle),
+                            glass_pairs)
     doors = placed["doors"]
     windows = placed["windows"]
     by_name = {r["name"]: r for r in rects}
@@ -753,6 +808,11 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
         names = list(pair)
         if len(names) >= 2:
             open_set.add(frozenset(names[:2]))
+    glass_set = set()
+    for pair in glass_pairs or []:
+        names = list(pair)
+        if len(names) >= 2:
+            glass_set.add(frozenset(names[:2]))
 
     def _doors_of(name):
         return [d for d in doors if d["room"] == name or d["into"] == name]
@@ -786,9 +846,11 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        if not corridors else "corridor area present"))
 
     # Rule 4: kitchen door into dining (real doors; an open-merged
-    # kitchen shares one space with a hub room, so no door is needed).
+    # or glass-partitioned kitchen needs no swing door), at the kitchen
+    # corner farthest from the living room, never into the living room.
     kitchens = [r for r in rects if r["type"] == "kitchen"]
     dinings = [r for r in rects if r["type"] == "dining"]
+    livings = [r for r in rects if r["type"] == "living room"]
     dining_names = {d["name"] for d in dinings}
     hub_names = {r["name"] for r in rects
                  if r["type"] in ("foyer", "living room", "dining",
@@ -805,14 +867,25 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                         if v.get("veranda_for") == kitchen["name"]}
         merged = [name for name in hub_names
                   if frozenset((kitchen["name"], name)) in open_set]
+        glazed = [name for name in hub_names
+                  if frozenset((kitchen["name"], name)) in glass_set]
         hits = [d for d in _doors_of(kitchen["name"])
                 if _other_side(d, kitchen["name"]) in dining_names]
         if hits:
             kitchen_lines.append("%s -> Dining (%.1f ft door)"
                                  % (kitchen["name"], hits[0]["width"]))
+            far_ok, far_text = _check_far_corner(kitchen, livings,
+                                                 dinings, hits[0])
+            if far_text:
+                kitchen_lines.append("%s door %s"
+                                     % (kitchen["name"], far_text))
+            kitchen_ok = kitchen_ok and far_ok
         elif merged:
             kitchen_lines.append("%s open-merged with %s, one space"
                                  % (kitchen["name"], merged[0]))
+        elif glazed:
+            kitchen_lines.append("%s glass partition to %s (slider)"
+                                 % (kitchen["name"], glazed[0]))
         else:
             kitchen_ok = False
             kitchen_lines.append("%s has NO door into dining"
@@ -856,7 +929,9 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
     rules.append(_rule("5", "Bedroom doors into family living", status,
                        "; ".join(bedroom_lines)))
 
-    # Rule 6: every bedroom has a real window (two preferred).
+    # Rule 6: every bedroom has a real window (two preferred); a
+    # front bedroom takes its road-side window when one fits beside
+    # the placed doors (bedrooms may face the road).
     wall_lines, windowless = [], 0
     for bed in beds:
         sides = sorted({w["wall"] for w in windows
@@ -868,14 +943,20 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
         else:
             windowless += 1
             wall_lines.append("%s: NO WINDOW" % bed["name"])
+        if "S" not in sides and wall_fits_window(bed, rects, doors, "S",
+                                                 BED_WIN_FT):
+            windowless += 1
+            wall_lines.append("%s: road window missing (front bedroom)"
+                              % bed["name"])
     rules.append(_rule("6", "Bedrooms have windows",
                        "FAIL" if windowless or not beds else "PASS",
                        "; ".join(wall_lines) if wall_lines
                        else "no bedrooms in plan"))
 
     # Rule 7: toilet count, 1 common, attached touch their bedroom;
-    # attached doors open only into their own bedroom, common doors
-    # into dining or family living. Verdict-hard.
+    # attached doors open into their own bedroom directly or through
+    # their dressing wardrobe, common doors into dining or family
+    # living. Verdict-hard.
     toilet_lines, toilet_ok = [], True
     families = [r for r in rects if r["type"] == "family living"]
     if len(baths) != num_toilets:
@@ -899,9 +980,18 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
             else:
                 toilet_lines.append("%s touches %s (%.1f ft)"
                                     % (bath["name"], host["name"], touch))
+            via = [t for t in targets
+                   if t in by_name and by_name[t]["type"] in ("wardrobe",
+                                                              "storage")
+                   and bath["attached_to"] in
+                   {_other_side(d, t) for d in _doors_of(t)}]
             if bath["attached_to"] in targets:
                 toilet_lines.append("%s door into %s"
                                     % (bath["name"], bath["attached_to"]))
+            elif via:
+                toilet_lines.append("%s door via %s into %s"
+                                    % (bath["name"], via[0],
+                                       bath["attached_to"]))
             else:
                 toilet_ok = False
                 toilet_lines.append("%s has NO door into %s"
@@ -998,27 +1088,36 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        "PASS" if veranda_ok else "FAIL",
                        "; ".join(veranda_lines)))
 
-    # Rule 11: cross ventilation - bedrooms and living spaces open on
-    # 2+ walls (doors and windows both count). Soft: single-wall rooms
-    # bend, never fail.
-    vent_rooms = beds + [r for r in rects if r["type"] in ("living room",
-                                                           "dining",
-                                                           "family living")]
+    # Rule 11: cross ventilation - bedrooms open on 2+ walls each,
+    # and the whole open area (foyer + living + dining + family, one
+    # continuous space) opens on 2+ walls pooled. Doors and windows
+    # both count. Soft: single-wall rooms bend, never fail.
     single_wall = []
-    for room in vent_rooms:
+    for room in beds:
         walls = {d["sides"].get(room["name"]) for d in _doors_of(room["name"])}
         walls |= {w["wall"] for w in windows if w["room"] == room["name"]}
         walls.discard(None)
         if len(walls) < 2:
             single_wall.append(room["name"])
-    if not vent_rooms:
+    area = [r for r in rects if r["type"] in ("foyer", "living room",
+                                              "dining", "family living")]
+    area_walls = set()
+    for room in area:
+        area_walls |= {d["sides"].get(room["name"])
+                       for d in _doors_of(room["name"])}
+        area_walls |= {w["wall"] for w in windows
+                       if w["room"] == room["name"]}
+    area_walls.discard(None)
+    if area and len(area_walls) < 2:
+        single_wall.append("open area (foyer/living/dining/family)")
+    if not beds and not area:
         vent_status, vent_detail = "BEND", "no bedrooms/living spaces"
     elif single_wall:
         vent_status = "BEND"
         vent_detail = "single-wall openings: " + ", ".join(single_wall)
     else:
         vent_status = "PASS"
-        vent_detail = "every bedroom + living space opens on 2+ walls"
+        vent_detail = "every bedroom + the open area open on 2+ walls"
     rules.append(_rule("11", "Cross ventilation 2+ walls", vent_status,
                        vent_detail))
     # Rule 12: every required door placed, gaps clean (corners + clash
@@ -1071,12 +1170,14 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
                        "FAIL" if bath_problems else "PASS", detail_18))
     rules.append(_check_master_size(rects))
 
-    # Rule 20: living room, kitchen, dining and family living each have a
-    # window. Soft (middle-spine rooms honestly borrow light): windowless
-    # rooms bend, never fail. West-facing glass is reported (avoided when
-    # another wall fits, but the afternoon sun matters in Bangladesh).
+    # Rule 20: living room, kitchen, dining, family living and foyer
+    # each have a window. Soft (middle-spine rooms honestly borrow
+    # light): windowless rooms bend, never fail. West-facing glass is
+    # reported (avoided when another wall fits, but the afternoon sun
+    # matters in Bangladesh).
     daylit = [r for r in rects if r["type"] in ("living room", "kitchen",
-                                                "dining", "family living")]
+                                                "dining", "family living",
+                                                "foyer")]
     dark = [r["name"] for r in daylit
             if not any(w["room"] == r["name"] for w in windows)]
     west_glass = sorted({w["room"] for w in windows
@@ -1094,6 +1195,28 @@ def _check_all(rects, info, build_w, build_d, road_side, num_toilets,
         day_detail += "; west-facing glass: " + ", ".join(west_glass)
     rules.append(_rule("20", "Living spaces have windows", day_status,
                        day_detail))
+
+    # Rule 21: kitchen windows never face the road (local S wall).
+    road_glass, road_ok = [], True
+    if not kitchens:
+        road_ok = False
+        road_glass.append("no kitchen in plan")
+    for kitchen in kitchens:
+        sides = sorted({w["wall"] for w in windows
+                        if w["room"] == kitchen["name"]})
+        if "S" in sides:
+            road_ok = False
+            road_glass.append("%s: window faces the ROAD"
+                              % kitchen["name"])
+        elif sides:
+            road_glass.append("%s: window (%s)" % (kitchen["name"],
+                                                   "/".join(sides)))
+        else:
+            road_glass.append("%s: no window (borrowed light)"
+                              % kitchen["name"])
+    rules.append(_rule("21", "Kitchen windows never face road",
+                       "PASS" if road_ok else "FAIL",
+                       "; ".join(road_glass)))
 
     # Design goals (soft): entry, outline, landscape, kitchen west.
     goals = []

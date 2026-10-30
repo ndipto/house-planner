@@ -82,3 +82,52 @@ there).
    living) — confirm?
 7. **Wardrobes doorless, middle-spine rooms borrowing light** — confirm
    both as designed?
+
+## Architect review round 1 (12 rules from the T1 plans)
+
+All 12 implemented, PROJECT.md rules 22-33, review/ SVGs re-saved,
+27/27 tests pass (new test_architect_round1; T1-T6 re-run green).
+
+What changed per rule:
+1. Doors hug corners (best-corner side wins), hinged corner-side, leaf
+   against the wall; never centered.
+2. Kitchen windows join toilet windows in never facing the road (new
+   rule 21, checked; placement bans the road wall).
+3. Wardrobe/store opens to its bedroom; attached baths route through
+   it where it sits between (rule 7 accepts the chain). Bands
+   wardrobes, which never touch a bedroom, open to family/dining
+   instead (see open point 4 below).
+4. ROOMS vs SPACES: no doors between foyer/living/dining/family - wide
+   openings with 2 ft stubs (runs under 6 ft stay solid). Rule 11
+   judges bedrooms singly + the whole open area pooled.
+5. Kitchen always enclosed, never to living: living+kitchen combines
+   are refused (SKIPPED + glass-to-dining note); kitchen+dining/family
+   combines become 6 ft+ glass partitions with a slider (rule 4
+   passes via glass). T2A/B honestly fail 4+12 (kitchen off dining).
+6. Kitchen door at the far-from-living corner (placed + rule 4 checks
+   it on 6 ft+ bearings).
+7. Foyer side glazing placed (E/W, 3 ft); foyer joins rule 20. Foyer
+   extension into front space NOT built ("may" + rule 9 gardens take
+   the leftover instead).
+8. Verified: strips already stagger (new test pins a side room off the
+   spine lines); no alignment is forced anywhere.
+9. Leftover plot (setbacks + front corners) drawn light green; wished
+   gardens filled green too.
+10. Front bedrooms take the road-side window first (rule 6 fails only
+    when one would have fit).
+11. Variety glass + slider dining-family on exactly one option (C
+    first; silent when no 6 ft run exists - T4/wide bands).
+12. Family living gets its 5 ft window on the back (N) wall first.
+
+Incidental test updates (all justified by the new rules): 45x55 merge
+asserts -> SKIPPED + glass note; T2 bar likewise; T2-C garden now MET
+(its no-garden variant was an emergent merge ordering, gone with the
+refused merge) and misses only 17 (windowless middle dining, known
+limit); bath asserts accept dressing chains.
+
+Open points carried forward: T6 still UNLIVABLE (5/16/19, decision 1
+above stands); T5 still an honest skip (decision 2); band kitchens off
+dining still fail 4+12 (decision 3); NEW: bands wardrobes open to
+family, not a bedroom - accept, or re-zone bands so each wardrobe sits
+between its bath and bedroom?
+
