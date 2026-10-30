@@ -765,17 +765,32 @@ def test_t4_50x40_south_open_south_master():
 
 
 def test_t5_30x50_north_narrow():
-    """T5: 30x50 road North, narrow plot. The side rooms need ~54 ft of
-    depth and only 40 ft exist, so no honest plan fits: the placer
-    must skip every option with a clear message, never a broken plan.
-    """
+    """T5: 30x50 road North. Compact two-strip: combined living+dining
+    open space, small foyer, side rooms at lower-end sizes, porch in
+    the setback - all three livable (round 2 item 2). Soft 10/12 may
+    fail honestly (stacked verandas touch; porch-less entry)."""
     result = build_options(PROGRAM_2BED, 30, 50, "North", 2)
-    assert result["options"] == [], "T5 fits nothing; options stay empty"
-    assert len(result["notes"]) == 3, "one skip note per option"
-    for note in result["notes"]:
-        assert "need at least" in note and "have" in note, \
-            "skip note states the shortfall: %s" % note
-    print("PASS test_t5_30x50_north_narrow (honest skip)")
+    options = result["options"]
+    assert [o["label"] for o in options] == ["A", "B", "C"]
+    assert all(o["typology"] == "two-strip" for o in options)
+    for opt in options:
+        assert opt["livable"] is True, \
+            "option %s livable" % opt["label"]
+        assert _rule_status(opt, "4") == "PASS", "kitchen into dining"
+        assert _rule_status(opt, "19") == "PASS", "master 10%+ biggest"
+        _assert_clean(opt, result["buildable"], result["plot"])
+        names = {r["name"]: r for r in opt["placements"]}
+        assert "Living + Dining" in names, "combined open space placed"
+        assert names["Living + Dining"]["type"] == "dining"
+        assert any("Compact two-strip" in note for note in opt["notes"])
+    by_label = {o["label"]: o for o in options}
+    assert _rule_status(by_label["A"], "13") == "BEND", "A compass-east"
+    assert _rule_status(by_label["B"], "13") == "PASS", "B compass-west"
+    assert _rule_status(by_label["C"], "13") == "BEND", "C compass-east"
+    feet = [_footprint(o) for o in options]
+    assert feet[0] != feet[1] and feet[0] != feet[2] \
+        and feet[1] != feet[2], "options must differ"
+    print("PASS test_t5_30x50_north_narrow (3 livable compact)")
 
 
 def test_t6_50x70_west_4bed_elderly():

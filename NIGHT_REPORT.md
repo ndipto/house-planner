@@ -187,7 +187,7 @@ second tribe WITH per-slot fatal reaches inside the real run until
 the missing slot is isolated - then fix that slot's bound, not the
 pass logic.
 
-Still open for part 2: item 1 (T6 L-wing second hub, all LIVABLE),
-item 2 (T5 30x50 two-strip compact, LIVABLE), item 8 (kitchen veranda
-never road-side), pantry placement for B/C, review/ SVG re-save.
+Done in part 2 so far: item 2 (T5 compact two-strip, 3 livable).
+Still open: item 1 (T6 L-wing second hub, all LIVABLE), item 8
+(kitchen veranda never road-side), pantry placement for B/C, review/ SVG re-save.
 

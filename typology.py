@@ -915,7 +915,7 @@ def _slot_options(kind, room, strip_w, bath_info=None,
     the strip full-width. depth_bounds caps {room_name: (lo, hi)} from
     the master-size second pass; [] when bounds leave nothing valid.
     """
-    if kind == "pair":
+    if kind in ("pair", "compact_pair"):
         # Paired top band (attached bath + common side by side, 5 ft
         # each, 6 ft deep) over a 2.5 ft dressing band (item 7: the
         # ensuite chain); fixed 8.5 ft, honoring second-pass bounds.
@@ -937,9 +937,9 @@ def _slot_options(kind, room, strip_w, bath_info=None,
     else:
         width = strip_w
         low, high = _type_range(_room_type(room))
-    if kind != "pair":
+    if kind not in ("pair", "compact_pair"):
         bounded = depth_bounds and room["name"] in depth_bounds
-    if bounded and kind != "pair":
+    if bounded and kind not in ("pair", "compact_pair"):
         blo, bhi = depth_bounds[room["name"]]
         low, high = max(low, blo), min(high, bhi)
     options = []
@@ -977,7 +977,8 @@ def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
     slightly lower tops so a shrunk back bedroom keeps its door.
     """
     if strip_w != 10.0 \
-            and any(kind == "pair" for kind, _r, _e in slots):
+            and any(kind in ("pair", "compact_pair")
+                    for kind, _r, _e in slots):
         raise _Infeasible("paired baths need a 10 ft strip")
     option_lists = [_slot_options(kind, room, strip_w, extra,
                                   depth_bounds=depth_bounds)
@@ -1000,7 +1001,7 @@ def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
             keys = []
             if kind == "kitchen":
                 keys = ["dining"]  # kitchen doors open into dining only
-            elif kind in ("bedroom", "common", "pair"):
+            elif kind in ("bedroom", "common", "pair", "compact_pair"):
                 keys = ["family", "dining"]
             elif kind == "living":
                 keys = ["foyer", "dining"]
@@ -1062,6 +1063,16 @@ def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
                                    "width_range": [filler_w, filler_w],
                                    "depth_range": [depth, depth]},
                                   filler_x, bottom, filler_w, depth))
+        elif kind == "compact_pair":
+            # Compact solid pair (round 2 item 2): no dressing band -
+            # the full 8.5 ft stays wet so the common reaches family.
+            bath = extra
+            if outer_east:
+                bath_x, common_x = strip_x0 + strip_w - 5.0, strip_x0
+            else:
+                bath_x, common_x = strip_x0, strip_x0 + 5.0
+            rects.append(_as_rect(bath, bath_x, bottom, 5.0, depth))
+            rects.append(_as_rect(room, common_x, bottom, 5.0, depth))
         elif kind == "pair":
             # Paired top band: attached bath outer, common inner (the
             # variant sits at the back, so both keep north light); a
@@ -1475,7 +1486,7 @@ def _fatal_count(order, tribe, spans):
             if rect is None:
                 continue
             y0, y1 = rect["y"], rect["y"] + rect["d"]
-            if kind in ("bedroom", "common", "pair"):
+            if kind in ("bedroom", "common", "pair", "compact_pair"):
                 need = 3.5 if kind == "bedroom" else 3.0
                 reach = 0.0
                 for key in ("family", "dining"):
@@ -1743,33 +1754,87 @@ def _assign_two_strip(buckets, notes, kitchen_first, directives,
     return slots, valid_pairs, merge_lk
 
 
+
+
+def _assign_two_compact(buckets, notes):
+    """Fixed compact side order ([pair, bed, kitchen, bed]) + pairs.
+
+    Round 2 item 2: the solid paired top (attached bath + common,
+    8.5 ft wet, no dressing band) is the only way 2 beds + kitchen
+    fit one 10 ft strip; the kitchen sits middle to reach dining.
+    """
+    beds = list(buckets["bedrooms"])
+    master_name = beds[0]["name"] if beds else ""
+    kitchen = buckets["kitchen"][0] if buckets["kitchen"] else None
+    bath_of, _loose, common = _bath_map(buckets, notes)
+    valid_pairs = _valid_pairs(buckets, {"combine": [], "glass": [],
+                                    "refused": []}, notes)
+    bed1 = beds[0] if beds else None
+    bed2 = beds[1] if len(beds) > 1 else None
+    bath1 = (bath_of.get(bed1["name"], []) or [None])[0] \
+        if bed1 is not None else None
+    if bed1 is None or bed2 is None or kitchen is None \
+            or bath1 is None or common is None:
+        raise _Infeasible("compact two-strip needs 2 beds + kitchen + "
+                          "attached bath + common")
+    slots = [("compact_pair", common, bath1),
+             ("bedroom", bed1, None),
+             ("kitchen", kitchen, None),
+             ("bedroom", bed2, None)]
+    return slots, valid_pairs
 def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
-               notes, directives, road, north_angle=None):
+               notes, directives, road, north_angle=None,
+               _compact=False, _compact_height=36.0):
     """One two-strip option in buildable coords (rects, info, meta).
 
     Raises _Infeasible (geometry is hard) instead of placing anything
     outside the buildable area.
     """
-    center_w, side_w, x0, _total = _strip_widths_two(build_w)
-    if side_west:
-        side_x, spine_x = x0, x0 + side_w
+    if _compact:
+        # Round 2 item 2: rooms start at the buildable edge (no
+        # porch room inside; the entry porch is a light structure in
+        # the front setback). The house narrows to 20 ft so the
+        # kitchen side keeps a 3 ft veranda margin.
+        center_w, side_w = 10.0, 10.0
+        x0 = 3.0 if side_west else 1.0
+        if side_west:
+            side_x, spine_x = x0, x0 + side_w
+        else:
+            spine_x, side_x = x0, x0 + center_w
+        y0 = 0.0
+        notes.append("Compact two-strip: combined living+dining, small "
+                     "foyer, side rooms at lower-end sizes.")
+        living_out, reason = True, "compact (living shares dining)"
     else:
-        spine_x, side_x = x0, x0 + center_w
-    y0 = _y0_porch(buckets)
-    living_out, reason = _living_out(buckets, center_w, build_d - y0,
-                                     directives)
-    if living_out:
-        notes.append("Living Room moves to a front corner (%s); the spine "
-                     "holds foyer, dining, family." % reason)
+        center_w, side_w, x0, _total = _strip_widths_two(build_w)
+        if side_west:
+            side_x, spine_x = x0, x0 + side_w
+        else:
+            spine_x, side_x = x0, x0 + center_w
+        y0 = _y0_porch(buckets)
+        living_out, reason = _living_out(buckets, center_w, build_d - y0,
+                                         directives)
+        if living_out:
+            notes.append("Living Room moves to a front corner (%s); the spine "
+                         "holds foyer, dining, family." % reason)
     rooms = _spine_rooms(buckets, living_out)
-    height = min(build_d - y0, _spine_cap(rooms, center_w))
+    height = _compact_height if _compact else min(
+        build_d - y0, _spine_cap(rooms, center_w))
     spine, relaxed, tried = _place_spine(
         rooms, spine_x, center_w, y0, height, notes)
     spans = _spine_spans(spine)
-    slots, valid_pairs, _merge_lk = _assign_two_strip(
-        buckets, notes, kitchen_first, directives, living_out, road,
-        0 if side_west else 1, north_angle)
-    has_living = any(kind == "living" for kind, _r, _e in slots)
+    if _compact:
+        for rect in spine:
+            if rect["type"] == "dining":
+                rect["name"] = "Living + Dining"
+    if _compact:
+        slots, valid_pairs = _assign_two_compact(buckets, notes)
+        has_living = False
+    else:
+        slots, valid_pairs, _merge_lk = _assign_two_strip(
+            buckets, notes, kitchen_first, directives, living_out, road,
+            0 if side_west else 1, north_angle)
+        has_living = any(kind == "living" for kind, _r, _e in slots)
     garden_ok = True
     base_min = y0 + 1.0 \
         if _front_wish(directives, road, north_angle) else 0.0
@@ -1809,6 +1874,29 @@ def _two_strip(buckets, build_w, build_d, side_west, kitchen_first,
             if notch > 0.25:
                 notes.append("%d-ft back notch keeps bedroom doors."
                              % round(notch))
+        if second is None or _master_bounds(second[0], master_name):
+            # Grow pass failed or still tied: shrunk fallback (others to
+            # minimum, master compact) - shared with three-strip.
+            shrunk_bounds = _master_bounds_shrunk(sides, master_name)
+            second = None
+            if shrunk_bounds:
+                try:
+                    second, garden2, count2 = _stack_with_garden(
+                        slots, side_x, side_w, build_d, spans, notes,
+                        outer_east=not side_west, base_min=base_min,
+                        want_garden=bool(directives["garden"])
+                        and has_living,
+                        depth_bounds=shrunk_bounds, tops=_PASS2_TOPS)
+                except _Infeasible:
+                    second = None
+                fatal2 = _fatal_count([slots], second[0], spans) \
+                    if second is not None else None
+                if second is not None and fatal2 <= fatal \
+                        and not _master_bounds(second[0], master_name):
+                    stacked, garden_ok, count = second, garden2, \
+                        count + count2
+                    notes.append("Master kept largest (other rooms shrunk "
+                                 "first).")
     sides, _sat, _tot, _tried = stacked
     rects = spine + sides
     if directives["garden"] and garden_ok and has_living:
@@ -2670,6 +2758,22 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
                        for wish, status in wish_rows]}
 
 
+
+
+def _two_strip_fallback(buckets, build_w, build_d, side_west,
+                        kitchen_first, notes, directives, road, angle,
+                        height=36.0):
+    """Standard two-strip, else the compact retry (round 2 item 2)."""
+    try:
+        return _two_strip(buckets, build_w, build_d, side_west,
+                          kitchen_first, notes, directives, road, angle)
+    except _Infeasible as exc:
+        notes.append("Standard two-strip does not fit (%s); compact "
+                     "retry (combined living+dining, lower-end sizes)."
+                     % exc)
+        return _two_strip(buckets, build_w, build_d, side_west,
+                          kitchen_first, notes, directives, road, angle,
+                          _compact=True, _compact_height=height)
 def _option_specs(buckets, build_w, build_d, road, directives,
                   north_angle=None):
     """(label, title, builder) for A/B/C (builders take a notes list)."""
@@ -2684,15 +2788,18 @@ def _option_specs(buckets, build_w, build_d, road, directives,
                 notes.append("Option C keeps rooms separate (compare with "
                              "the open plan).")
             plain = dict(directives, combine=[], glass=[])
-            return _two_strip(buckets, build_w, build_d, True, False, notes,
-                              plain, road, angle)
+            return _two_strip_fallback(buckets, build_w, build_d, True, False,
+                                       notes,
+                              plain, road, angle, height=35.0)
 
         return [
             ("A", "Two-strip, rooms %s" % low_word,
-             lambda n: _two_strip(buckets, build_w, build_d, True, True, n,
+             lambda n: _two_strip_fallback(buckets, build_w, build_d, True, True,
+                                           n,
                                   directives, road, angle)),
             ("B", "Two-strip, rooms %s" % high_word,
-             lambda n: _two_strip(buckets, build_w, build_d, False, True, n,
+             lambda n: _two_strip_fallback(buckets, build_w, build_d, False, True,
+                                           n,
                                   directives, road, angle)),
             ("C", "Two-strip, rooms %s (alt order)" % low_word,
              _build_c_two),

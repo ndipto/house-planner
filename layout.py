@@ -733,17 +733,17 @@ def _check_far_corner(kitchen, livings, dinings, door):
     """(ok, text): kitchen door at the far-from-living corner?
 
     Only judged when the longest kitchen-dining run reaches 6 ft (a
-    real choice existed) and a living room or dining anchors the far
+    real choice existed) and a living room anchors the far
     side; short runs just note the corner. The door passes in the run
     half nearer the far corner (+6 in tolerance for keepout shifts).
     """
     anchor = None
-    if livings:
-        anchor = (livings[0]["x"] + livings[0]["w"] / 2.0,
+    if not livings:  # far-from-living needs living (T5 compact skips)
+        return True, ""
+
+    anchor = (livings[0]["x"] + livings[0]["w"] / 2.0,
                   livings[0]["y"] + livings[0]["d"] / 2.0)
-    elif dinings:
-        anchor = (dinings[0]["x"] + dinings[0]["w"] / 2.0,
-                  dinings[0]["y"] + dinings[0]["d"] / 2.0)
+
     if anchor is None:
         return True, ""
     corners = [(kitchen["x"], kitchen["y"]),

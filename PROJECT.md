@@ -2,7 +2,7 @@
 
 **Owner:** Architect (solo builder, no coding background) + AI coding assistance (see Authorship note below).
 **Event:** Meta Global AI Developer Hackathon — deadline **Nov 4, 2026**.
-**Status:** Architect review round 1 done Oct 30 (12 rules from the T1 plans; Day 3 done Oct 30 — solid walls (10 in ext / 5 in int), real doors (entry 3'6", room 3'0", toilet 2'6", veranda 2'6") and windows (bed 4'0" x2 preferred, living 5'0", kitchen 3'0", bath 2'0" never road-side); every door/window rule really checked, zero PENDING, new soft rule 20 (living-space windows + west-glass report); T1-T6 regression set green (26/26) with review/ SVGs re-saved. T6 4-bed west stays honestly UNLIVABLE (needs a new typology move — architect decision pending). Architect round 2 part 1 done Oct 31 (rotated-drawing fixes, 3 in T-returns + 3.5 ft bearings, kitchen-dining hard rule with band re-zone, glass+door kitchens, dressing-band ensuites; 26/28 tests, 2 red on rule-19 strips C — stuck point documented in NIGHT_REPORT.md).
+**Status:** Architect review round 1 done Oct 30 (12 rules from the T1 plans; Day 3 done Oct 30 — solid walls (10 in ext / 5 in int), real doors (entry 3'6", room 3'0", toilet 2'6", veranda 2'6") and windows (bed 4'0" x2 preferred, living 5'0", kitchen 3'0", bath 2'0" never road-side); every door/window rule really checked, zero PENDING, new soft rule 20 (living-space windows + west-glass report); T1-T6 regression set green (26/26) with review/ SVGs re-saved. T6 4-bed west stays honestly UNLIVABLE (needs a new typology move — architect decision pending). Architect round 2 part 1 done Oct 31 (rotated-drawing fixes, 3 in T-returns + 3.5 ft bearings, kitchen-dining hard rule with band re-zone, glass+door kitchens, dressing-band ensuites; 26/28 tests, 2 red on rule-19 strips C — stuck point documented in NIGHT_REPORT.md). Round 2 part 2 Oct 31: T5 compact two-strip done (3 livable, 27/28).
 
 This file is the project memory. Muse Code should read it at the start of every session and keep the "Built during the hackathon" section up to date.
 
@@ -203,6 +203,7 @@ Update this list as we go (each item: date + one line).
 - [x] Oct 30: `layout.py` — placement + rule checks working (done Oct 29, Day 2).
 - [x] Oct 31: `draw.py` — SVG plan rendering (done Oct 29, Day 2).
 - [x] Oct 31: Architect round 2 part 1 (items 9+5 done, 3/4/6/7 mostly done, 26/28 pass, part-2 items open).
+- [x] Oct 31: Round 2 part 2 item 2 — T5 compact two-strip (combined living+dining, small foyer, solid pair, lower-end sizes; 3 livable, 27/28).
 - [ ] Nov 1: `app.py` — full local flow (brief → plan on screen).
 - [ ] Nov 2: Deployed to Streamlit Community Cloud (public link: _tbd_).
 - [ ] Nov 3: Stretch feature (_tbd_) or polish.
