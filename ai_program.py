@@ -568,7 +568,7 @@ def get_room_program(frontage_ft, depth_ft, road_side, num_bedrooms,
     if program_area["total"] > buildable["area"]:
         over = program_area["total"] - buildable["area"]
         area_warning = (
-            f"Program needs about {program_area['total']:.0f} sq ft "
+            f"Your rooms need about {program_area['total']:.0f} sq ft "
             f"(rooms + walls) but the buildable area is only "
             f"{buildable['area']:.0f} sq ft -- over by {over:.0f} sq ft "
             f"even after shrinking. Try fewer rooms or a bigger plot."

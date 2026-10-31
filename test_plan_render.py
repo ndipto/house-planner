@@ -9,8 +9,11 @@ import json
 
 from PIL import Image
 
-from plan_render import (CANVAS, check_render, edit_image,
-                         render_plan_checked)
+from plan_render import (CANVAS, SIMPLE_PROMPT, check_render,
+                         edit_image, edit_image_simple,
+                         render_plan_checked, render_plan_simple,
+                         simple_input_png, simple_prompt,
+                         simple_shape)
 
 ROOMS = [
     {"name": "Kitchen", "type": "kitchen", "x": 1.5, "y": 4.0,
@@ -46,9 +49,11 @@ class _FakeImages:
     def __init__(self, colors):
         self.colors = list(colors)
         self.calls = 0
+        self.last_kwargs = None
 
     def edit(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = dict(kwargs)
         color = self.colors[min(self.calls - 1,
                                 len(self.colors) - 1)]
         raw = base64.b64encode(_png_bytes(color)).decode("ascii")
@@ -195,6 +200,81 @@ def test_checker_error_keeps_first():
     print("PASS test_checker_error_keeps_first")
 
 
+def test_simple_shapes():
+    assert simple_shape(40, 60, "North") == "portrait", "T1 tall"
+    assert simple_shape(70, 40, "East") == "portrait", \
+        "T7 draws upright (road-East rotation)"
+    assert simple_shape(60, 40, "South") == "landscape", "drawn wide"
+    assert simple_shape(40, 40, "South") == "square", "square"
+    assert simple_shape(44, 40, "South") == "square", "near-square"
+    print("PASS test_simple_shapes")
+
+
+def test_simple_prompt_exact():
+    assert simple_prompt() == SIMPLE_PROMPT
+    assert simple_prompt("") == SIMPLE_PROMPT
+    assert simple_prompt("marble tiles in living") == \
+        SIMPLE_PROMPT + " marble tiles in living"
+    assert "exactly the same" in SIMPLE_PROMPT
+    assert SIMPLE_PROMPT.endswith("No extra text.")
+    print("PASS test_simple_prompt_exact")
+
+
+def test_simple_input_matches_plan():
+    from test_layout import (PROGRAM_2BED, PROGRAM_3BED, WISHES_T7,
+                             _program_t7)
+    from typology import build_options
+
+    cases = [(PROGRAM_3BED, 40, 60, "North", 3, "", None,
+              (1024, 1536)),
+             (_program_t7(), 70, 40, "East", 3, WISHES_T7, 90,
+              (1024, 1536)),
+             (PROGRAM_2BED, 60, 40, "South", 2, "", None,
+              (1536, 1024))]
+    for prog, fw, fd, road, nt, wishes, angle, size in cases:
+        result = build_options(prog, fw, fd, road, nt, wishes,
+                               angle)
+        opt = result["options"][0]
+        plot = result["plot"]
+        img, _shape, target = simple_input_png(
+            opt["placements"], opt.get("open_plan", []),
+            opt.get("glass_partitions", []),
+            float(plot.get("north_angle", 0)), plot["width"],
+            plot["depth"], str(plot["road"]).lower())
+        assert target == size, "%dx%d %s: target %s" % (fw, fd, road,
+                                                       target)
+        assert img.size == size, "input padded to output size"
+        black = img.convert("L").histogram()[0]
+        assert black > 1000, "walls drawn (black pixels)"
+    print("PASS test_simple_input_matches_plan (3 shapes, walls drawn)")
+
+
+def test_simple_single_call():
+    client = _FakeClient(colors=["green"])
+    final = render_plan_simple(
+        ROOMS, [], [], 180.0, 40.0, 60.0, "north",
+        extra="marble tiles in living", client=client)
+    assert client.images.calls == 1, "exactly one image call"
+    sent = client.images.last_kwargs
+    assert sent["size"] == "1024x1536", "portrait size sent"
+    assert sent["prompt"].startswith(SIMPLE_PROMPT), \
+        "simple prompt sent"
+    assert "marble tiles in living" in sent["prompt"], \
+        "extra instructions appended"
+    assert Image.open(io.BytesIO(final)).size == (1024, 1536)
+    print("PASS test_simple_single_call")
+
+
+def test_simple_missing_key_raises():
+    try:
+        edit_image_simple(b"xx", (1024, 1024), SIMPLE_PROMPT,
+                          api_key="", client=None)
+    except RuntimeError:
+        print("PASS test_simple_missing_key_raises")
+        return
+    raise AssertionError("missing key must raise")
+
+
 def main():
     test_check_all_ok()
     test_check_flags_wrong_room()
@@ -204,7 +284,12 @@ def main():
     test_retry_then_pass()
     test_keeps_best_of_retries()
     test_checker_error_keeps_first()
-    print("8/8 plan-render tests pass.")
+    test_simple_shapes()
+    test_simple_prompt_exact()
+    test_simple_input_matches_plan()
+    test_simple_single_call()
+    test_simple_missing_key_raises()
+    print("13/13 plan-render tests pass.")
 
 
 if __name__ == "__main__":

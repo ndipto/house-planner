@@ -656,3 +656,79 @@ Tests: 8/8 new mocked pass; layout 34/34 runnable pass
 test_front_facing_master, pre-existing, untouched code);
 render + voice suites pass; app bare-imports OK.
 
+## Client-friendly wording + simple render (Nov 1; committed, not pushed)
+
+Two parts, one commit ("Client-friendly wording, simple
+shape-matched plan render"). No push, no server/browser
+smoke (standing rule), no debug leftovers. Image cost: 4
+real calls of the 8 allowed (T1-A, T7-A, WIDE-A x2).
+
+PART 1 - wording (app.py only; logic/ranking untouched):
+scores, rule numbers, "hard fails", fail/bend, PASS/FAIL,
+"wishes 0/0" and model names are gone from the page (a
+literal scan of app.py confirms none remain in displayed
+strings; "Technical notes/details" expanders stay technical
+by design). Each card now shows: a plain title ("Kitchen
+on the west side", "Master bedroom at the front, west
+side", "L-shaped plan with a garden court", ... all 7
+title shapes mapped + veranda suffixes), the badge with
+its plain sentences, "Your wishes: X of Y included" only
+when wishes were read, and up to 3 translated design
+notes (whitelist; builder notes like "dining-second
+retry" never show). The rule table is now "Option X:
+Architect's checklist" with plain names and Met / Not met
+/ Partly, no numbers; wishes read Included / Not
+included / Not advised. Also planed: "Generate plans",
+"Space check", "Room sizes", "Toilets", plain toilet-use
+("Family toilet", "Toilet for X"), plain spinners and
+area warning (ai_program.py string only, unpinned).
+
+PART 2 - simple render (plan_render.py + app.py wiring):
+input = the client-visible plan redrawn as PNG (walls,
+doors, windows, room names + sizes; same geometry as the
+SVG; no furniture outlines, dims or road labels so the AI
+copies no text), white-padded to a shape-matched size -
+landscape 1536x1024 / portrait 1024x1536 / square
+1024x1024 by the DRAWN aspect after road rotation (within
+10% = square). One Image edit call with the one-paragraph
+prompt + the client's extra instructions from a new per-
+option text box; plan and render show side by side with
+the "check against the plan" caption; results stay in
+st.session_state (cache key includes the instructions, so
+edited text + Render gives a fresh image). Old path
+(furniture outlines, label overlay, vision auto-check +
+retries) kept in-file for history; its 8 mocked tests
+kept green, 5 new mocked tests added (13/13).
+
+Bug note: the old fixed portrait canvas both clipped
+tall-drawn plans (T7's content is taller than 1536px) and
+invited rearrangement on wide-drawn ones. New code never
+clips (downscale-to-fit, then pad) and the output aspect
+always equals the input aspect. T7 draws portrait (road-
+East stands the wide plot upright), so the landscape path
+is proven live by WIDE-A (60x40 South).
+
+Live verdicts (review/renders/*_simple_*.png, judged by
+eye against the inputs; model returns 1.25x upscale at
+the same aspect, resized to target):
+- T1-A (tall): MATCH with minor nits. All rooms, walls
+  and doors in place, no copied text, lawn + plants. Nits:
+  the Store/Bath-2 pair subdivided as 1 store + 2 WC
+  cubicles instead of 1+1, and Bedroom 1 furnished as a
+  study (walls/door correct).
+- T7-A (wide plot): MATCH. Every room in place with
+  fitting furniture, garden rendered as lawn, no text.
+- WIDE-A (landscape): SHAPE FIXED but PARTIAL room match,
+  twice the same way (original + 1 retry): bedrooms,
+  kitchen, living, baths and verandas all correct, but the
+  labeled Dining room misreads as baths + wardrobe while
+  the dining table merges into the living space; a garden
+  path also appears at the back. Systematic, not variance
+  - left as a known limit (the caption + Regenerate stay);
+  no prompt change, no more calls spent.
+
+Tests: layout 34/36 (same 2 stuck fails, verified by
+running all 34 others explicitly - the file's own runner
+still aborts at the first stuck one, pre-existing),
+render 3/3, voice 3/3, plan-render 13/13. Total 53/55.
+

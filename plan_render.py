@@ -1,27 +1,24 @@
 # plan_render.py
-# Rendered floor plans: line plan -> Muse Image edit -> labeled render.
+# Rendered floor plans: the client-visible plan -> Muse Image edit.
 #
-# What this file does (any option, not just T1):
-#   1. draw_plan_png() exports an option as a PNG plan (walls, doors,
-#      windows, verandas/porch outlines, plot boundary) using the
-#      SAME scale/margins/transform as draw.svg_plan, plus gray
-#      furniture outlines per room type (kept clear of door swings)
-#      and large type-only room labels so the AI reads each room's
-#      function instead of guessing it.
-#   2. edit_image() sends it to Muse Image EDIT mode
-#      (POST /v1/images/edits, model muse-image-1.0) asking for a
-#      flat orthographic colored top-down render.
-#   3. overlay_labels() draws room-name labels only on the result.
-#   4. check_render() asks Muse Spark (vision) to verify each
-#      room's furniture; render_plan_checked() retries the render
-#      (at most 2 retries) and keeps the best one.
-# Running the file directly re-runs the T1 A/B/C experiment set
-# into review/renders/.
+# CURRENT (simple path, Nov 1): export_plan_png() redraws the SAME
+# plan drawing the client sees (walls, doors, windows, room names)
+# with the SAME scale/margins/transform as draw.svg_plan; pad_to_size()
+# pads it with white to the shape-matched output size (landscape for
+# wide drawn plans, portrait for tall, square for near-square);
+# render_plan_simple() sends it once to Muse Image EDIT mode
+# (POST /v1/images/edits, model muse-image-1.0) with a one-paragraph
+# prompt (+ the client's extra instructions). One Image call per
+# render, no furniture outlines, no label overlay, no retry loop.
+# Running the file directly renders T1-A (tall), T7-A (wide plot)
+# and WIDE-A (drawn landscape) into review/renders/.
+#
+# HISTORY: the first path (draw_plan_png + furniture outlines +
+# overlay_labels + Spark vision check_render with retries) is kept
+# in this file but no longer used by the app or main().
 #
 # Docs: dev.meta.ai/docs/image-generation ("Edit an image"):
 # client.images.edit(model, prompt, image, size, n) - OpenAI-compatible.
-# dev.meta.ai/docs/image-understanding: Spark vision via the
-# Responses API with an input_image block (base64 data URL).
 # Pillow is pure pip (no system package), so this path also works on
 # Streamlit Cloud.
 #
@@ -42,7 +39,7 @@ from ai_program import BASE_URL, MODEL_NAME
 from draw import svg_plan  # noqa: F401 (kept: same geometry source)
 from layout import SHORT_NAMES
 from openings import UNWALLED_TYPES, place_openings, wall_segments
-from test_layout import PROGRAM_3BED
+from test_layout import PROGRAM_2BED, PROGRAM_3BED, WISHES_T7, _program_t7
 from typology import build_options
 
 CANVAS = (1024, 1536)  # portrait; matches T1's plan aspect
@@ -939,55 +936,345 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
     return best, best_check, attempts
 
 
+# ---------------------------------------------------------------------------
+# Simple path (Nov 1, current): the input is the SAME plan drawing the
+# client sees (walls, doors, windows, room names), padded with white to
+# the output aspect. No furniture outlines, no label overlay, no
+# auto-check retry loop - one Image call per render. The old path above
+# (draw_plan_png/edit_image/check_render/render_plan_checked) is kept
+# for history; the app and main() no longer use it.
+#
+# Bug fixed here: the old path always output portrait 2:3, so a wide
+# drawn plan came back rearranged to fill the tall frame (and a tall
+# drawn plan overflowed the fixed canvas and got clipped). Now the
+# output size matches the DRAWN plan's shape (after road rotation -
+# e.g. T7's wide plot draws portrait because road-East stands it
+# upright), and the input is padded (never stretched, never clipped)
+# to that exact aspect before sending.
+# ---------------------------------------------------------------------------
+
+SIMPLE_PROMPT = (
+    "Make the uploaded image a 2D top-down floor plan render. Keep "
+    "the layout, walls, doors, windows and rooms exactly the same. "
+    "Realistic floor finishes, furniture that fits each labeled "
+    "room, lawn and plants outside. No extra text."
+)
+
+SIMPLE_SIZES = {
+    "portrait": (1024, 1536),
+    "landscape": (1536, 1024),
+    "square": (1024, 1024),
+}
+
+
+def simple_shape(plot_w, plot_d, road):
+    """Output shape for the DRAWN plan (road rotation applied).
+
+    Landscape when the drawing is clearly wider than tall, portrait
+    when clearly taller than wide, square when near-square (within
+    10%). Mirrors draw.svg_plan's rotation: road east/west stands
+    the plot upright.
+    """
+    road = str(road or "south").strip().lower()
+    draw_w = float(plot_w) if road in ("north", "south") \
+        else float(plot_d)
+    draw_d = float(plot_d) if road in ("north", "south") \
+        else float(plot_w)
+    if draw_w > draw_d * 1.1:
+        return "landscape"
+    if draw_d > draw_w * 1.1:
+        return "portrait"
+    return "square"
+
+
+def simple_prompt(extra=""):
+    """The simple render prompt + the client's extra instructions."""
+    extra = str(extra or "").strip()
+    if extra:
+        return SIMPLE_PROMPT + " " + extra
+    return SIMPLE_PROMPT
+
+
+def _simple_frame(plot_w, plot_d, road):
+    """Content-sized frame: same scale/margins as draw.svg_plan.
+
+    Returns (point, scale, width, height): point maps local plot
+    coords to content pixels; width/height is the exact content
+    box (padded to the output size later, never clipped).
+    """
+    road = str(road or "south").strip().lower()
+    if road not in ("north", "south", "east", "west"):
+        road = "south"
+    draw_w = plot_w if road in ("north", "south") else plot_d
+    draw_d = plot_d if road in ("north", "south") else plot_w
+    scale = 800.0 / max(draw_w, 1.0)
+    left, top, right, bottom = 80, 78, 110, 104
+    if road == "north":
+        top = 104
+    if road == "south":
+        bottom = 122
+    width = left + draw_w * scale + right
+    height = top + draw_d * scale + bottom
+
+    def point(x, y):
+        if road == "south":
+            u, v = x, plot_d - y
+        elif road == "north":
+            u, v = x, y
+        elif road == "east":
+            u, v = plot_d - y, plot_w - x
+        else:  # west
+            u, v = y, x
+        return left + u * scale, top + v * scale
+
+    return point, scale, width, height
+
+
+def export_plan_png(rooms, open_plan, glass, angle, plot_w, plot_d,
+                    road):
+    """The client-visible plan as PNG: walls, doors, windows,
+    room names (with sizes when they fit). No furniture outlines,
+    no dimensions or road labels (so the AI copies no text)."""
+    from ai_program import format_ft_in
+
+    point, scale, width, height = _simple_frame(plot_w, plot_d, road)
+    img = Image.new("RGB", (int(round(width)), int(round(height))),
+                    "#ffffff")
+    ink = ImageDraw.Draw(img)
+
+    # Plot boundary (thick).
+    x0, y0 = point(0, 0)
+    x1, y1 = point(plot_w, plot_d)
+    ink.rectangle([min(x0, x1), min(y0, y1), max(x0, x1),
+                   max(y0, y1)], outline="#000000", width=3)
+
+    # Room fills: white (walled rooms lose their outline to the
+    # wall bands), thin outlines for veranda/porch, green garden,
+    # gray foyer zone - same as the SVG the client sees.
+    for room in rooms:
+        kind = str(room.get("type", ""))
+        ax, ay = point(room["x"], room["y"])
+        bx, by = point(room["x"] + room["w"],
+                       room["y"] + room["d"])
+        box = [min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)]
+        if kind == "garden":
+            ink.rectangle(box, fill="#d5e5cf", outline="#000000",
+                          width=2)
+        elif kind == "foyer":
+            ink.rectangle(box, fill="#efefef", outline=None)
+        elif kind in UNWALLED_TYPES:
+            ink.rectangle(box, fill="#ffffff", outline="#000000",
+                          width=2)
+        else:
+            ink.rectangle(box, fill="#ffffff", outline=None)
+
+    # Solid wall bands (same segments the SVG draws).
+    placed = place_openings(rooms, open_plan, angle, glass)
+    for seg in wall_segments(rooms, placed["doors"],
+                             placed["windows"], open_plan, glass):
+        ax, ay = point(seg["x0"], seg["y0"])
+        bx, by = point(seg["x1"], seg["y1"])
+        if seg["kind"] == "glass":
+            _window_lines(ink, point, scale, seg)
+        else:
+            ink.rectangle([min(ax, bx), min(ay, by), max(ax, bx),
+                           max(ay, by)], fill="#000000")
+
+    # Doors (leaf + swing arc) and windows (double lines).
+    by_name = {r.get("name", ""): r for r in rooms}
+    for door in placed["doors"]:
+        _door_symbol(ink, door, by_name, point, scale)
+    for win in placed["windows"]:
+        _window_lines(ink, point, scale, win)
+
+    # Room names (+ sizes when they fit), like the SVG labels.
+    for room in rooms:
+        ax, ay = point(room["x"], room["y"])
+        bx, by = point(room["x"] + room["w"],
+                       room["y"] + room["d"])
+        x, y = min(ax, bx), min(ay, by)
+        w_px, h_px = abs(bx - ax), abs(by - ay)
+        name = str(room.get("name", "?"))
+        short = SHORT_NAMES.get(str(room.get("type", "")),
+                                name.split(" ")[0])
+        if room.get("screened_jali"):
+            name, short = "Ver (jali)", "Ver"
+        dims = "%s x %s" % (format_ft_in(room["w"]),
+                            format_ft_in(room["d"]))
+        try:
+            area = "%d sq ft" % round(float(room["w"])
+                                      * float(room["d"]))
+        except (TypeError, ValueError):
+            area = ""
+        cx = x + w_px / 2.0
+        if str(room.get("type", "")) == "foyer":
+            font = _font(11 if h_px >= 40 else 9)
+            ink.text((cx, y + h_px / 2.0), "Foyer", font=font,
+                     anchor="mm", fill="#000000")
+            continue
+        if h_px < 24:
+            label = name if len(name) * 6.2 < w_px - 8 else short
+            ink.text((cx, y + h_px / 2.0), label, font=_font(9),
+                     anchor="mm", fill="#000000")
+        elif h_px < 44:
+            ink.text((cx, y + 15), name if len(name) * 6.2 < w_px - 8
+                     else short, font=_font(10), anchor="mm",
+                     fill="#000000")
+            ink.text((cx, y + 28), dims, font=_font(9),
+                     anchor="mm", fill="#000000")
+        else:
+            size = 20 if len(name) * 6.6 < w_px - 8 else 14
+            label = name if size == 20 else (
+                name if len(name) * 7.0 < w_px - 8 else short)
+            ink.text((cx, y + h_px / 2.0 - 8), label,
+                     font=_font(size), anchor="mm",
+                     fill="#000000")
+            ink.text((cx, y + h_px / 2.0 + 8), dims,
+                     font=_font(10), anchor="mm", fill="#000000")
+            if area:
+                ink.text((cx, y + h_px / 2.0 + 23), area,
+                         font=_font(10), anchor="mm",
+                         fill="#000000")
+    return img
+
+
+def pad_to_size(img, target):
+    """White-pad img to target (downscaling only to fit, centered)."""
+    tw, th = target
+    scale = min(tw / img.width, th / img.height, 1.0)
+    if scale < 1.0:
+        img = img.resize((max(1, int(round(img.width * scale))),
+                          max(1, int(round(img.height * scale)))))
+    out = Image.new("RGB", (tw, th), "#ffffff")
+    out.paste(img, ((tw - img.width) // 2, (th - img.height) // 2))
+    return out
+
+
+def simple_input_png(rooms, open_plan, glass, angle, plot_w,
+                     plot_d, road):
+    """Exported plan padded to its shape-matched output size.
+
+    Returns (padded PIL image, shape name, (width, height)).
+    """
+    shape = simple_shape(plot_w, plot_d, road)
+    target = SIMPLE_SIZES[shape]
+    plan = export_plan_png(rooms, open_plan, glass, angle, plot_w,
+                           plot_d, road)
+    return pad_to_size(plan, target), shape, target
+
+
+def edit_image_simple(plan_png, size, prompt, api_key=None,
+                      client=None):
+    """One Muse Image edit call at the given size; raw PNG bytes.
+
+    Pass client (an OpenAI client, real or fake) to skip key
+    handling - used by tests.
+    """
+    if client is None:
+        key = (api_key or "").strip()
+        if not key:
+            raise RuntimeError("META_API_KEY is missing, so no "
+                               "render was made.")
+        client = OpenAI(api_key=key, base_url=BASE_URL)
+    try:
+        result = client.images.edit(
+            model=IMAGE_MODEL, prompt=prompt,
+            image=("plan.png", plan_png, "image/png"),
+            size="%dx%d" % size, n=1)
+    except TypeError:  # older openai client: file object only
+        result = client.images.edit(
+            model=IMAGE_MODEL, prompt=prompt,
+            image=io.BytesIO(plan_png), n=1)
+    item = result.data[0]
+    if getattr(item, "b64_json", None):
+        return base64.b64decode(item.b64_json)
+    if getattr(item, "url", None):
+        import urllib.request
+        with urllib.request.urlopen(item.url, timeout=60) as resp:
+            return resp.read()
+    raise RuntimeError("Muse Image returned no image")
+
+
+def render_plan_simple(rooms, open_plan, glass, angle, plot_w,
+                       plot_d, road, extra="", api_key=None,
+                       client=None):
+    """Render one option: export, pad to shape, one Image call.
+
+    Returns the final PNG bytes (resized to the shape-matched
+    size when the model returns a different size).
+    """
+    plan, _shape, target = simple_input_png(
+        rooms, open_plan, glass, angle, plot_w, plot_d, road)
+    buf = io.BytesIO()
+    plan.save(buf, format="PNG")
+    raw = edit_image_simple(buf.getvalue(), target,
+                            simple_prompt(extra), api_key, client)
+    final = Image.open(io.BytesIO(raw)).convert("RGB")
+    if final.size != target:
+        final = final.resize(target)
+    out = io.BytesIO()
+    final.save(out, format="PNG")
+    return out.getvalue()
+
+
+SIMPLE_CASES = [
+    # (tag, program, frontage, depth, road, toilets, wishes, angle)
+    ("T1", PROGRAM_3BED, 40, 60, "North", 3, "", None),
+    ("T7", None, 70, 40, "East", 3, WISHES_T7, 90),  # program built below
+    ("WIDE", PROGRAM_2BED, 60, 40, "South", 2, "", None),
+]
+
+
 def main(export_only=False):
     key = "" if export_only else _read_key()
     if not key and not export_only:
         print("META_API_KEY missing (env or .env); cannot run.")
         return
     os.makedirs("review/renders", exist_ok=True)
-    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
-    plot = result["plot"]
-    try:
-        angle = float(plot.get("north_angle", 180)) % 360.0
-    except (TypeError, ValueError):
-        angle = 180.0
-    road = str(plot["road"]).lower()
-    for opt in result["options"]:
-        label = opt["label"]
+    for tag, program, fw, fd, road, ntoilets, wishes, angle in SIMPLE_CASES:
+        if program is None:  # T7 carries room features from wishes
+            program = _program_t7()
+        result = build_options(program, fw, fd, road, ntoilets,
+                               wishes, angle)
+        if not result["options"]:
+            print("%s: no option fits, skipped." % tag)
+            continue
+        opt = result["options"][0]
+        plot = result["plot"]
+        try:
+            north = float(plot.get("north_angle", 0)) % 360.0
+        except (TypeError, ValueError):
+            north = 0.0
+        road_low = str(plot["road"]).lower()
         rooms = opt["placements"]
         open_plan = opt.get("open_plan", [])
         glass = opt.get("glass_partitions", [])
-        print("exporting T1-%s ..." % label)
-        plan = draw_plan_png(rooms, open_plan, glass, angle,
-                             plot["width"], plot["depth"], road)
-        buf = io.BytesIO()
-        plan.save(buf, format="PNG")
-        plan_bytes = buf.getvalue()
-        with open("review/renders/T1_%s_input.png" % label,
-                  "wb") as handle:
-            handle.write(plan_bytes)
+        print("exporting %s-%s ..." % (tag, opt["label"]))
+        plan, shape, target = simple_input_png(
+            rooms, open_plan, glass, north, plot["width"],
+            plot["depth"], road_low)
+        plan.save("review/renders/%s_%s_simple_input.png"
+                  % (tag, opt["label"]))
+        print("  shape %s, size %dx%d." % (shape, *target))
         if export_only:
             continue
-        print("editing T1-%s (1 image call) ..." % label)
-        raw = edit_image(plan_bytes, key)
-        with open("review/renders/T1_%s_raw.png" % label,
-                  "wb") as handle:
-            handle.write(raw)
-        over = Image.open(io.BytesIO(raw)).convert("RGB")
-        if over.size != CANVAS:
-            print("  note: returned %s, expected %s" %
-                  (over.size, CANVAS))
-            over = over.resize(CANVAS)
-        overlay_labels(over, rooms, open_plan, glass, angle,
-                       plot["width"], plot["depth"], road)
-        over.save("review/renders/T1_%s_overlaid.png" % label)
-        drift = Image.open(io.BytesIO(raw)).convert("RGB")
-        if drift.size != CANVAS:
-            drift = drift.resize(CANVAS)
-        drift_check_png(drift, rooms, open_plan, glass, angle,
-                        plot["width"], plot["depth"], road)
-        drift.save("review/renders/_drift_T1_%s.png" % label)
-        print("saved T1-%s raw + overlaid + drift." % label)
+        print("rendering %s-%s (1 image call) ..." % (tag, opt["label"]))
+        raw = edit_image_simple(_png_bytes(plan), target,
+                                SIMPLE_PROMPT, key)
+        final = Image.open(io.BytesIO(raw)).convert("RGB")
+        if final.size != target:
+            print("  note: returned %s, expected %s; resized."
+                  % (final.size, target))
+            final = final.resize(target)
+        final.save("review/renders/%s_%s_simple_render.png"
+                   % (tag, opt["label"]))
+        print("saved %s-%s input + render." % (tag, opt["label"]))
+
+
+def _png_bytes(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 if __name__ == "__main__":

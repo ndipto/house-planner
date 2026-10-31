@@ -11,16 +11,16 @@ import re
 from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
-from plan_render import render_plan_checked
+from plan_render import render_plan_simple
 from typology import build_options
 from voice import transcribe_audio
 
 
-def _render_option_plan(plot, option):
-    """Colored presentation render of one option, auto-checked.
+def _render_option_plan(plot, option, extra=""):
+    """Colored presentation render of one option (one Image call).
 
-    Returns (png_bytes, note). Raises with a friendly message
-    when the key is missing or the calls fail.
+    Returns the PNG bytes. Raises with a friendly message when
+    the key is missing or the call fails.
     """
     try:
         angle = float(plot.get("north_angle", 0)) % 360.0
@@ -32,21 +32,11 @@ def _render_option_plan(plot, option):
             "META_API_KEY is missing, so no render was made. On "
             "Streamlit Cloud add it under Settings > Secrets; on your "
             "laptop put META_API_KEY=your-key-here in .env.")
-    png, check, attempts = render_plan_checked(
+    return render_plan_simple(
         option["placements"], option.get("open_plan", []),
         option.get("glass_partitions", []), angle,
         float(plot["width"]), float(plot["depth"]),
-        str(plot["road"]).lower(), key)
-    if check is None:
-        note = "Room check unavailable; showing the render as is."
-    elif check["all_ok"]:
-        note = "Room check: every room passed."
-    else:
-        bad = [name for name, verdict in check["rooms"].items()
-               if not verdict["ok"]]
-        note = "Room check flagged: %s (best of %d kept)." % (
-            ", ".join(bad), attempts)
-    return png, note
+        str(plot["road"]).lower(), extra, key)
 
 
 def _svg_for_option(plot, option):
@@ -76,14 +66,21 @@ def _rooms_for_table(rooms):
         except (TypeError, ValueError):
             area_text = "?"
         features = room.get("features") or []
+        room_type = str(room.get("type", "?"))
         toilet_use = ""
-        if str(room.get("type", "")).strip().lower() == "bathroom":
-            kind = str(room.get("bathroom_kind", "")).strip() or "?"
+        if room_type.strip().lower() == "bathroom":
+            kind = str(room.get("bathroom_kind", "")).strip().lower()
             target = str(room.get("attached_to", "")).strip()
-            toilet_use = kind if not target else f"{kind} ({target})"
+            if kind == "common":
+                toilet_use = "Family toilet"
+            elif target:
+                toilet_use = "Toilet for %s" % target
+            elif kind == "attached":
+                toilet_use = "With a bedroom"
+            room_type = "Toilet"
         rows.append({
             "Name": room.get("name", "?"),
-            "Type": room.get("type", "?"),
+            "Type": room_type,
             "Width": format_ft_in(width),
             "Depth": format_ft_in(depth),
             "Area": area_text,
@@ -95,14 +92,176 @@ def _rooms_for_table(rooms):
     return rows
 
 
-def _option_summary(opt):
-    """One-line demo summary: verdict, score, wishes, hard fails."""
-    verdict = "All key rules met" if opt["livable"] else "Needs review"
+def _plain_title(opt):
+    """Client-friendly option title, e.g. 'Kitchen on the west side'."""
+    title = str(opt.get("title", ""))
+    low = title.lower()
+    match = re.search(
+        r"kitchen (?:\+ master )?"
+        r"(west|east|north|south|road-left|road-right)", low)
+    master = re.search(
+        r"master (front )?(west|east|north|south|road-left|road-right)",
+        low)
+    if match:
+        side = match.group(1)
+        if side == "road-left":
+            base = "Kitchen on the left side"
+        elif side == "road-right":
+            base = "Kitchen on the right side"
+        else:
+            base = "Kitchen on the %s side" % side
+    elif master:
+        side = master.group(2)
+        if master.group(1):
+            base = "Master bedroom at the front, %s side" % side
+        else:
+            base = "Master bedroom on the %s side" % side
+    elif "l-shape" in low:
+        base = "L-shaped plan with a garden court"
+    else:
+        rooms = re.search(
+            r"rooms (west|east|north|south|road-left|road-right)", low)
+        if rooms:
+            base = "Rooms on the %s side" % rooms.group(1)
+        else:
+            base = "Layout variant %s" % opt.get("label", "")
+    if "unmet" in low:
+        base += "; kitchen with a window"
+    elif "jali-screened" in low:
+        base += "; kitchen veranda with a privacy screen"
+    elif "no kitchen veranda" in low:
+        base += "; kitchen with a window instead of a veranda"
+    elif "kitchen veranda on" in low or "off-road" in low:
+        base += "; kitchen veranda away from the road"
+    return base
+
+
+def _wishes_line(opt):
+    """'Your wishes: X of Y included', or '' when no wishes were read."""
     wishes = opt.get("wishes", [])
+    if not wishes:
+        return ""
     met = sum(1 for row in wishes if row["status"] == "MET")
-    fails = ", ".join(opt["livability_fails"]) or "none"
-    return "%s - score %.0f, wishes %d/%d, hard fails: %s." % (
-        verdict, opt["score"], met, len(wishes), fails)
+    return "Your wishes: %d of %d included" % (met, len(wishes))
+
+
+_NOTE_PATTERNS = [
+    # Internal builder notes translated to plain design notes. Any
+    # note matching nothing here is skipped on the card (it stays
+    # in the code and tests, just not in front of the client).
+    (re.compile(r"Glass partition with a sliding glass door between "
+                r"(.+) and (.+) \(variety\)\.?"),
+     lambda m: "%s and %s joined by a glass partition with a "
+               "sliding door." % (m.group(1), m.group(2))),
+    (re.compile(r"Glass partition: (.+) \+ (.+) share .*sliding.*"),
+     lambda m: "%s and %s joined by a glass partition with a "
+               "sliding door." % (m.group(1), m.group(2))),
+    (re.compile(r"Open plan: (.+) \+ (.+) share .*one gathering.*"),
+     lambda m: "%s and %s share one open gathering space."
+               % (m.group(1), m.group(2))),
+    (re.compile(r"Garden placed in front of (.+?) \(.*"),
+     lambda m: "A small garden sits in front of %s."
+               % m.group(1)),
+    (re.compile(r"Garden fills the leftover .* at the end of the "
+                r"(front|back) row\.?"),
+     lambda m: "A garden fills the open end of the plan."),
+    (re.compile(r"Court garden fills the open .* corner .*"),
+     lambda m: "A courtyard garden fills the open corner."),
+    (re.compile(r"Open court fills the L's back-east corner\."),
+     lambda m: "An open court fills the corner of the L."),
+    (re.compile(r"House .* wide in .* buildable; sides stay landscape\."),
+     lambda m: "Open green space along the sides of the house."),
+    (re.compile(r"(.+) on the (.+) side \(client wish\)\."),
+     lambda m: "%s is on the %s side, as you wished."
+               % (m.group(1), m.group(2))),
+    (re.compile(r"(.+) placed in the front corner \(client wish.*"),
+     lambda m: "%s sits in a front corner, as you wished."
+               % m.group(1)),
+    (re.compile(r"(.+) placed (.+) \(client wish: (.+) facing\)\."),
+     lambda m: "%s faces %s, as you wished."
+               % (m.group(1), m.group(3))),
+    (re.compile(r"Living Room moves to a front corner.*"),
+     lambda m: "The living room sits in a front corner by the "
+               "entrance."),
+    (re.compile(r"Option C keeps rooms separate \(compare with .*"),
+     lambda m: "This option keeps rooms separate so you can "
+               "compare."),
+    (re.compile(r"Compact two-strip: .*"),
+     lambda m: "A compact plan shaped for a narrow plot."),
+    (re.compile(r"No kitchen veranda \(option C choice\): the "
+                r"kitchen window ventilates from the . wall\."),
+     lambda m: "The kitchen gets light and air from its window."),
+]
+
+
+def _design_notes(opt):
+    """Up to 3 short plain design notes; skips internal notes."""
+    out = []
+    for note in opt.get("notes", []):
+        for pattern, plain in _NOTE_PATTERNS:
+            match = pattern.match(note)
+            if match:
+                text = plain(match)
+                if text not in out:
+                    out.append(text)
+                break
+        if len(out) >= 3:
+            break
+    return out[:3]
+
+
+_PLAIN_RULES = {
+    "1": "Room sizes feel right",
+    "2": "No dark central corridor",
+    "3": "Corridors stay small",
+    "4": "Kitchen opens into dining",
+    "5": "Bedrooms open off family living",
+    "6": "Every bedroom has a window",
+    "7": "Right toilets in the right places",
+    "8": "Toilets ventilated, away from the front",
+    "9": "Toilet windows face away from the road",
+    "10": "Verandas separate and well sized",
+    "11": "Fresh air from two sides in every room",
+    "12": "Doors and windows all drawn",
+    "13": "Kitchen has an outside wall and veranda",
+    "14": "Bedrooms have window walls",
+    "15": "Every toilet has an outside wall",
+    "16": "Easy movement without passing through bedrooms",
+    "17": "Living spaces open to two sides",
+    "18": "Toilets are practical sizes",
+    "19": "Master bedroom is the largest",
+    "20": "Living spaces have windows",
+    "21": "Kitchen windows face away from the road",
+    "G": "Everything fits inside the plot",
+}
+
+_PLAIN_GOALS = {
+    "Good entry (porch + foyer)": "Welcoming entry with porch",
+    "Outline not a plain rectangle": "Lively building outline",
+    "Landscape left on big plots": "Garden space left over",
+    "Kitchen west (among dining/family)": "Kitchen on the west side",
+}
+
+_WISH_RESULT = {"MET": "Included", "NOT MET": "Not included",
+                "SKIPPED": "Not advised"}
+
+
+def _check_result(status):
+    """Plain checklist result: Met / Not met / Partly."""
+    return {"PASS": "Met", "FAIL": "Not met", "BEND": "Partly",
+            "MET": "Met", "MISSED": "Not met"}.get(status, "--")
+
+
+def _checklist_rows(opt):
+    """Every rule + goal as plain {Check, Result} rows (no numbers)."""
+    rows = []
+    for row in opt.get("rules", []):
+        rows.append({"Check": _PLAIN_RULES.get(row["id"], row["name"]),
+                     "Result": _check_result(row["status"])})
+    for row in opt.get("goals", []):
+        rows.append({"Check": _PLAIN_GOALS.get(row["name"], row["name"]),
+                     "Result": _check_result(row["status"])})
+    return rows
 
 
 _FRIENDLY_RULE = {
@@ -227,7 +386,7 @@ with input_col:
         # below (set before the widget exists, so no rerun warning).
         heard = voice_note.getvalue()
         if st.session_state.get("voice_digest") != hash(heard):
-            with st.spinner("Transcribing your brief with Muse Voice..."):
+            with st.spinner("Listening to your recording..."):
                 try:
                     said = transcribe_audio(heard)
                 except Exception as err:
@@ -252,7 +411,7 @@ if _results_stale(st.session_state, _signature):
     _clear_results(st.session_state)
 
 # --- Button: ask the AI, then show results ---
-if st.button("Generate room program"):
+if st.button("Generate plans"):
     # Toilets are required: stop with a clear message when empty/invalid.
     if not toilets_text.strip():
         st.error("Please enter the number of toilets (1 to %d) before generating." % max_toilets)
@@ -273,18 +432,18 @@ if st.button("Generate room program"):
                  "file, then try again.")
         st.stop()
     # While waiting, show a spinner so the page does not look frozen.
-    with st.spinner("Asking Muse Spark for your room program..."):
+    with st.spinner("Reading your brief and shaping the rooms..."):
         try:
             result = get_room_program(
                 frontage_ft, depth_ft, road_side,
                 int(num_bedrooms), num_toilets, wishes, north_angle,
             )
         except Exception as err:
-            _show_error("Could not get a room program. Check your API key "
-                        "and connection, then try again.", err)
+            _show_error("Could not shape the rooms from your brief. Check "
+                        "your API key and connection, then try again.", err)
             st.stop()
     rooms = result["rooms"]
-    with st.spinner("Building three layout options..."):
+    with st.spinner("Building layout options..."):
         try:
             options_result = build_options(
                 rooms, frontage_ft, depth_ft, road_side, num_toilets,
@@ -311,8 +470,8 @@ if _has_results(st.session_state):
     st.subheader("Design explanation")
     st.write(result["design_explanation"] or "No explanation returned.")
 
-    # 3. Program area vs. buildable area.
-    st.subheader("Program area vs. buildable area")
+    # 3. Space check: do the rooms fit on the plot?
+    st.subheader("Space check")
     buildable = result["buildable"]
     area = result["program_area"]
     st.write(
@@ -320,34 +479,34 @@ if _has_results(st.session_state):
         f"({format_ft_in(buildable['width'])} x {format_ft_in(buildable['depth'])})."
     )
     st.write(
-        f"Program: rooms {area['net']:.0f} + interior walls {area['interior_walls']:.0f} "
+        f"Your rooms: rooms {area['net']:.0f} + interior walls {area['interior_walls']:.0f} "
         f"+ exterior walls {area['exterior_walls']:.0f} = {area['total']:.0f} sq ft "
         f"(corridors {area['circulation']:.0f} sq ft of the rooms)."
     )
     if result["revised"] and not result["area_warning"]:
-        st.info("The first draft was too big, so the AI shrank rooms to fit.")
+        st.info("The first draft was too big, so the rooms were shrunk to fit.")
     if result["area_warning"]:
         st.warning(result["area_warning"])
     else:
-        st.success("The program fits inside the buildable area.")
+        st.success("Your rooms fit inside the buildable area.")
 
-    # 4. Size check results from plain Python.
-    st.subheader("Size check")
+    # 4. Room sizes.
+    st.subheader("Room sizes")
     problems = result["size_problems"]
     if not problems:
-        st.success("All room sizes pass our rules.")
+        st.success("All room sizes look good.")
     else:
         st.warning("Some rooms need attention:")
         for item in problems:
             st.write("- " + item)
 
-    # 5. Toilet rule check (HARD rule).
-    st.subheader("Toilet check")
+    # 5. Toilets.
+    st.subheader("Toilets")
     toilet_problems = result["toilet_problems"]
     if not toilet_problems:
-        st.success("Toilet rule passes: exactly 1 common, rest attached largest-first.")
+        st.success("The toilet arrangement looks good.")
     else:
-        st.warning("Toilet rule needs attention:")
+        st.warning("The toilets need attention:")
         for item in toilet_problems:
             st.write("- " + item)
 
@@ -361,37 +520,36 @@ if _has_results(st.session_state):
         st.warning("No option fits this plot; try a bigger plot or fewer rooms.")
         st.stop()
     plot = options_result["plot"]
-    tried = sum(opt["tried"] for opt in options)
     st.write(
-        "Built %d option(s) (%d arrangements examined); scores rank them, "
-        "higher is better. 'Needs review' means a hard rule (4, 5, 7, "
-        "13-16, 19, or geometry G) missed - see under each option."
-        % (len(options), tried)
+        "Here are %d layout option(s) for your brief. 'Needs review' "
+        "means an architect should take a second look - the reason "
+        "is shown under that option." % len(options)
     )
     columns = st.columns(len(options))
     for column, opt in zip(columns, options):
         with column:
             st.markdown("### Option %s" % opt["label"])
-            st.write(opt["title"])
-            st.caption(_option_summary(opt))
+            st.write(_plain_title(opt))
             if opt["livable"]:
                 st.success("All key rules met")
             else:
                 st.warning("Needs review")
                 for sentence in _friendly_issues(opt):
                     st.write(sentence)
-            st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
-            fails = [r["id"] for r in opt["rules"] if r["status"] == "FAIL"]
-            bends = [r["id"] for r in opt["rules"] if r["status"] == "BEND"]
-            st.write("Fail: %s; bend: %s."
-                     % (", ".join(fails) if fails else "none",
-                        ", ".join(bends) if bends else "none"))
+            wishes_line = _wishes_line(opt)
+            if wishes_line:
+                st.write(wishes_line)
+            for note in _design_notes(opt):
+                st.write("- " + note)
             cache = st.session_state.setdefault("plan_renders", {})
-            notes = st.session_state.setdefault("plan_render_notes",
-                                                {})
-            plan_key = "%s|%s|%d" % (
+            extra = st.text_input(
+                "Extra instructions for the render (e.g. marble tiles "
+                "in living, bed against the north wall, plants on "
+                "verandas)",
+                key="extra_%s" % opt["label"])
+            plan_key = "%s|%s|%d|%d" % (
                 opt["label"], opt["title"],
-                hash(repr(opt["placements"])))
+                hash(repr(opt["placements"])), hash(extra or ""))
             if plan_key in cache:
                 want_render = st.button(
                     "Regenerate", key="regen_%s" % opt["label"])
@@ -400,49 +558,42 @@ if _has_results(st.session_state):
                     "Render this plan",
                     key="render_%s" % opt["label"])
             if want_render:
-                with st.spinner("Rendering this plan with Muse "
-                                "Image (auto-checking rooms)..."):
+                with st.spinner("Making a presentation render of "
+                                "this plan..."):
                     try:
-                        png, note = _render_option_plan(plot, opt)
+                        cache[plan_key] = _render_option_plan(
+                            plot, opt, extra or "")
                     except Exception as err:
                         _show_error("Could not render this plan.",
                                     err)
-                    else:
-                        cache[plan_key] = png
-                        notes[plan_key] = note
             if plan_key in cache:
-                st.image(
-                    cache[plan_key],
-                    caption="AI presentation render - check "
-                            "against the plan")
-                if notes.get(plan_key):
-                    st.caption(notes[plan_key])
+                left, right = st.columns(2)
+                with left:
+                    st.markdown(_svg_for_option(plot, opt),
+                                unsafe_allow_html=True)
+                    st.caption("Your plan")
+                with right:
+                    st.image(
+                        cache[plan_key],
+                        caption="AI presentation render - check "
+                                "against the plan")
+            else:
+                st.markdown(_svg_for_option(plot, opt),
+                            unsafe_allow_html=True)
 
     if len(options) == 2:
         st.info("Two layouts fit this plot shape.")
-    # 7. Per-option detail (plans show solid walls, doors, windows).
+    # 7. Per-option architect's checklist (plain names, no numbers).
     for opt in options:
-        with st.expander("Option %s details: %s"
-                         % (opt["label"], opt["title"])):
+        with st.expander("Option %s: Architect's checklist"
+                         % opt["label"]):
             st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
-            st.table([
-                {"Rule": "%s. %s" % (row["id"], row["name"]),
-                 "Result": row["status"],
-                 "Detail": row["detail"]}
-                for row in opt["rules"]
-            ])
-            st.table([
-                {"Goal": row["name"], "Result": row["status"],
-                 "Detail": row["detail"]}
-                for row in opt["goals"]
-            ])
+            st.table(_checklist_rows(opt))
             if opt["wishes"]:
                 st.table([
-                    {"Client wish": row["wish"], "Result": row["status"]}
+                    {"Your wish": row["wish"],
+                     "Result": _WISH_RESULT.get(row["status"],
+                                               row["status"])}
                     for row in opt["wishes"]
                 ])
-            if opt["relaxed"]:
-                st.write("Relaxed sizes: %s." % ", ".join(opt["relaxed"]))
-            for item in opt["notes"]:
-                st.write("- " + item)
     st.caption("Concept only - not for construction; consult a licensed architect.")
