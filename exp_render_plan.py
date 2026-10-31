@@ -45,13 +45,19 @@ IMAGE_MODEL = "muse-image-1.0"
 
 RENDER_PROMPT = (
     "Strictly flat orthographic top-down floor plan view, no "
-    "perspective, no wall height, no 3D cutaway. Render the "
-    "furniture shown in the input realistically in the same "
-    "positions; do not add or move furniture. Warm wood floors in "
-    "bedrooms and living spaces, light tiles in kitchen and "
-    "toilets. Lawn and plants in all open areas, minimal paving "
-    "(only a short path to the porch). Soft light shadows. "
-    "No text."
+    "perspective, no wall height, no 3D cutaway. Each room's "
+    "name is written inside it in large letters - use it to "
+    "furnish every room correctly (bedrooms get beds, the "
+    "kitchen gets counters and stove, bathrooms get toilet "
+    "fixtures, living spaces get sofas, dining gets a dining "
+    "set). Render the furniture shown in the input "
+    "realistically in the same positions; do not add or move "
+    "furniture. Warm wood floors in bedrooms and living "
+    "spaces, light tiles in kitchen and toilets. Lawn and "
+    "plants in all open areas, minimal paving (only a short "
+    "path to the porch). Soft light shadows. Do not copy any "
+    "text or letters into the output - the OUTPUT image has "
+    "no text."
 )
 
 
@@ -107,13 +113,45 @@ def _font(size):
         return ImageFont.load_default()
 
 
-def _room_label(room, width_px):
+def _display_name(room):
+    """Clean type-only name: 'Wardrobe'/'Store', never
+    'Wardrobe (Bath 1)'; 'Bathroom' for every toilet."""
+    kind = str(room.get("type", "")).strip().lower()
     name = str(room.get("name", "?"))
-    short = SHORT_NAMES.get(str(room.get("type", "")),
-                            name.split(" ")[0])
+    if kind in ("wardrobe", "store"):
+        return "Store" if "store" in name.lower() else "Wardrobe"
+    if kind == "veranda":
+        return "Veranda"
+    if kind in ("bathroom", "toilet", "bath"):
+        return "Bathroom"
+    if kind == "bedroom":
+        return "Bedroom"
+    if kind == "kitchen":
+        return "Kitchen"
+    if kind == "living room":
+        return "Living Room"
+    if kind == "dining":
+        return "Dining"
+    if kind == "family living":
+        return "Family Living"
+    if kind == "foyer":
+        return "Foyer"
+    if kind == "porch":
+        return "Porch"
+    if kind == "garden":
+        return "Garden"
+    return name.split(" ")[0] if name else "?"
+
+
+def _room_label(room, width_px):
+    kind = str(room.get("type", "")).strip().lower()
+    name = str(room.get("name", "?"))
+    if kind in ("wardrobe", "store"):
+        return "Store" if "store" in name.lower() else "Wardrobe"
+    short = SHORT_NAMES.get(str(room.get("type", "")), name)
     label = name if len(name) * 6.2 < width_px - 8 else short
     if room.get("screened_jali"):
-        label = "Ver (jali)"
+        label = "Veranda (jali)"
     return label
 
 
@@ -498,7 +536,31 @@ def _furniture_shapes(room, keep):
         _seating(plc, 6.0, 3.0)
     elif kind in ("veranda", "porch"):
         _veranda(plc)
+    elif kind in ("wardrobe", "store"):
+        _shelves(plc)
     return plc.shapes
+
+
+def _shelves(plc):
+    """Shelf unit only (never a WC): rect + 2 shelf lines. Drawn
+    without the keep-out check: these filler boxes are tiny and
+    the sketch only needs to READ as shelves."""
+    rx, ry, rw, rd = plc.rx, plc.ry, plc.rw, plc.rd
+    x, y, w, d = rx + 0.3, ry + 0.3, rw - 0.6, rd - 0.6
+    if w < 1.0 or d < 1.0:
+        return
+    plc.taken.append((x, y, x + w, y + d))
+    plc.shapes.append(("rect", x, y, w, d))
+    if rw >= rd:
+        plc.shapes.append(("line", x, y + d / 3.0, x + w,
+                           y + d / 3.0))
+        plc.shapes.append(("line", x, y + 2 * d / 3.0, x + w,
+                           y + 2 * d / 3.0))
+    else:
+        plc.shapes.append(("line", x + w / 3.0, y, x + w / 3.0,
+                           y + d))
+        plc.shapes.append(("line", x + 2 * w / 3.0, y,
+                           x + 2 * w / 3.0, y + d))
 
 
 def _draw_shape(ink, shape, point):
@@ -572,6 +634,27 @@ def draw_plan_png(rooms, open_plan, glass, angle, plot_w, plot_d,
         _door_symbol(ink, door, by_name, point, scale)
     for win in placed["windows"]:
         _window_lines(ink, point, scale, win)
+
+    # Large type-only room labels, so the AI reads each room's
+    # function instead of guessing it (output stays text-free
+    # via the prompt).
+    for room in rooms:
+        ax, ay = point(room["x"], room["y"])
+        bx, by = point(room["x"] + room["w"],
+                       room["y"] + room["d"])
+        x, y = min(ax, bx), min(ay, by)
+        w_px, h_px = abs(bx - ax), abs(by - ay)
+        label = _display_name(room)
+        for size in (64, 56, 48, 40, 32, 26, 22, 18, 14, 12):
+            font = _font(size)
+            bbox = ink.textbbox((0, 0), label, font=font)
+            if bbox[2] - bbox[0] <= w_px - 20 \
+                    and bbox[3] - bbox[1] <= h_px - 12:
+                break
+        else:
+            continue  # too small for any legible label
+        ink.text((x + w_px / 2.0, y + h_px / 2.0), label,
+                 font=font, anchor="mm", fill="#000000")
     return img
 
 

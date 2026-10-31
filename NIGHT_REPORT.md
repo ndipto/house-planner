@@ -579,3 +579,47 @@ labels drawn INTO the input image (the AI can read; the
 output), possibly with more distinctive outline shapes
 for sofas vs dining sets. STOPPING here for review.
 
+## Render goal rounds (Nov 1) - all rooms right, A+B+C
+
+Baseline (round 2 above): outlines only, 1 of 3 compliant
+(A good, B/C improvised). This task: iterate until A, B
+and C are all correct in one round. Score = every room has
+its own furniture, nothing room-wrong, walls aligned, lawn,
+no text. Small extras that belong to the room (fridge in
+kitchen, TV in family living, a plant) do not fail a room;
+wrong-room furniture (bed in kitchen) or a WC in a store
+does. Foyer should stay near-empty (input draws nothing).
+
+### Round 1: room names in the INPUT + shelves (kept: helps)
+
+One change (input annotation): every room's TYPE name in
+large letters centered in the input ("Bedroom", "Kitchen",
+"Bathroom", "Store", "Wardrobe", "Veranda", ...); prompt
+gains one clause (use the written names; OUTPUT still has
+no text). Plus the standing small-space rule: stores and
+wardrobes get shelf outlines only, never empty (empty boxes
+invited spare WCs). Overlay labels cleaned ("Wardrobe",
+"Store"). Cost this round: 3 image calls (task total 3/30
+image, 0/30 Spark).
+- A: CORRECT. 15/15 rooms right: kitchen counter/stove/
+  sink/fridge, 3 beds, sofas, dining set, all baths,
+  Store = boxes/shelves, Wardrobe = closet, Veranda =
+  chairs + plants. Extras: foyer chair + console, +2
+  dining chairs, fridge, TV console. Walls aligned
+  (white style). Lawn + path, one spare rear path. No
+  text in raw.
+- B: CORRECT. 15/15 rooms right: kitchen counter, NO bed
+  (round-2 failure fixed); living = sofa set (round-2
+  failure fixed); baths, Store shelves, Wardrobe closet,
+  Veranda patio all right. Extras: foyer console, Store
+  reads as utility nook, +chairs. Walls aligned (black
+  style). Lawn + path. No text.
+- C: CORRECT. 15/15 rooms right: kitchen counter, NO bed;
+  NO kitchen island in the living room (round-2 failure
+  fixed); family = sofa set; baths, Store, Wardrobe,
+  bedrooms all right. Extras: 2 foyer armchairs,
+  Wardrobe has a desk. Walls aligned (black). Lawn +
+  path. No text.
+Verdict: 3/3 CORRECT - SUCCESS in round 1. No further
+rounds needed (ideas 2-4 untried, kept in reserve).
+
