@@ -472,3 +472,55 @@ Tool folders: .agents/.eden/.hg/.muse/.sl were all empty and
 untracked (nothing to untrack, nothing deleted); added all
 five to .gitignore so they can never be committed.
 
+## Rendered floor plan experiment (Nov 1; committed, not pushed)
+
+STEP 1 only: the app is unchanged, nothing is wired in. New
+script exp_render_plan.py exports a T1 option as a PNG line
+plan (Pillow, same scale/margins/transform as draw.svg_plan:
+walls, door leafs + swing arcs, windows, veranda/porch
+outlines, plot boundary; no text, no dims), sends it to Muse
+Image EDIT mode (POST /v1/images/edits, model muse-image-1.0,
+OpenAI-compatible client.images.edit, size 1024x1536), then
+overlays the exact wall bands + room-name labels at the same
+coordinates. Pillow is pure pip (no system package), so this
+path works on Streamlit Cloud with no packages.txt. The
+overlay is redrawn with PIL at the same coordinates rather
+than rasterizing the SVG (avoids cairosvg system libs).
+Cost: 3 image calls used of the 6 allowed (T1 A/B/C, one
+each). The model returned 1280x1920 (same 2:3 aspect,
+1.25x upscale), so overlays align after a plain resize.
+Files: review/renders/T1_{A,B,C}_{input,raw,overlaid}.png.
+
+Fidelity (judged by eye on all 3 pairs):
+- Walls/doors/windows: EXCELLENT. No wall moved, no room
+  added or removed in any option; the overlay bands sit
+  exactly on the AI's walls. The AI even kept door gaps,
+  window positions and the jali veranda, and obeyed "No
+  text" (raw images carry no text).
+- Room functions: MIXED - this is the one real problem.
+  The input plan has no labels, so the AI guesses each
+  room's function from size/position and always puts the
+  kitchen in the wrong room: in A and C the real kitchen
+  got living-room furniture (sofa/dining set) while a
+  bedroom got the stove/sink/counters; B mirrors the same
+  swap and additionally put a toilet inside the
+  bedroom-turned-kitchen. Entry/foyer in A got a bed;
+  one bed intrudes into a veranda in B. Toilets, living,
+  dining and family-living furniture are right everywhere.
+- Furniture scale: GOOD where the function is right
+  (beds, sofas, dining sets, toilet fixtures all fit
+  their rooms); wrong only where the function is wrong.
+- Outdoors: A/B got lawn + plants as asked; C paved most
+  of the plot as patio instead of lawn (acceptable but
+  worth a stronger "lawn, minimal paving" line).
+- Style note: the AI renders walls with 3D height and
+  shadows (cutaway look), not a flat plan. It looks like
+  a client presentation image, arguably better than flat.
+
+Recommendation for STEP 2 (needs architect approval, would
+spend 1-2 of the 3 remaining image calls to verify): put
+room-name labels (or a room list with positions) into the
+input PNG or the prompt so the AI furnishes the right
+rooms; the overlay already redraws clean labels on top.
+STOPPING here for review as instructed.
+
