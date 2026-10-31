@@ -1,24 +1,34 @@
 # plan_render.py
-# Rendered floor plans: the client-visible plan -> Muse Image edit.
+# Rendered floor plans: annotated line plan -> Muse Image edit.
 #
-# CURRENT (simple path, Nov 1): export_plan_png() redraws the SAME
-# plan drawing the client sees (walls, doors, windows, room names)
-# with the SAME scale/margins/transform as draw.svg_plan; pad_to_size()
-# pads it with white to the shape-matched output size (landscape for
-# wide drawn plans, portrait for tall, square for near-square);
-# render_plan_simple() sends it once to Muse Image EDIT mode
-# (POST /v1/images/edits, model muse-image-1.0) with a one-paragraph
-# prompt (+ the client's extra instructions). One Image call per
-# render, no furniture outlines, no label overlay, no retry loop.
-# Running the file directly renders T1-A (tall), T7-A (wide plot)
-# and WIDE-A (drawn landscape) into review/renders/.
+# CURRENT (faithful path, Nov 1): draw_plan_png() exports an option
+# as a PNG plan (walls, doors, windows, verandas/porch outlines,
+# plot boundary) using the SAME scale/transform as draw.svg_plan,
+# plus gray furniture outlines per room type (kept clear of door
+# swings) and large type-only room labels so the AI reads each
+# room's function instead of guessing it. The input is cropped
+# tightly to the house plus a small margin (no big white padding,
+# no title, no dimensions) and padded only to the shape-matched
+# output size: landscape for wide drawn plans, portrait for tall,
+# square for near-square. edit_image() sends it to Muse Image EDIT
+# mode (POST /v1/images/edits, model muse-image-1.0) with a
+# strictly flat orthographic prompt (+ the client's extra
+# instructions); overlay_labels() draws room-name labels only on
+# the result; check_render() asks Muse Spark (vision) to verify
+# each room's furniture and render_plan_checked() retries at most
+# twice, keeping the best. Running the file directly renders T1-A
+# (tall) and WIDE-A (drawn landscape) into review/renders/.
 #
-# HISTORY: the first path (draw_plan_png + furniture outlines +
-# overlay_labels + Spark vision check_render with retries) is kept
-# in this file but no longer used by the app or main().
+# HISTORY: the simplified path (client-visible plan PNG in, one
+# Image call, no outlines/overlay/check) proved unfaithful live
+# (T1 rooms rearranged, WIDE a different house) and is superseded;
+# its helpers stay in this file but the app and main() no longer
+# use them.
 #
 # Docs: dev.meta.ai/docs/image-generation ("Edit an image"):
 # client.images.edit(model, prompt, image, size, n) - OpenAI-compatible.
+# dev.meta.ai/docs/image-understanding: Spark vision via the
+# Responses API with an input_image block (base64 data URL).
 # Pillow is pure pip (no system package), so this path also works on
 # Streamlit Cloud.
 #
@@ -39,7 +49,7 @@ from ai_program import BASE_URL, MODEL_NAME
 from draw import svg_plan  # noqa: F401 (kept: same geometry source)
 from layout import SHORT_NAMES
 from openings import UNWALLED_TYPES, place_openings, wall_segments
-from test_layout import PROGRAM_2BED, PROGRAM_3BED, WISHES_T7, _program_t7
+from test_layout import PROGRAM_2BED, PROGRAM_3BED
 from typology import build_options
 
 CANVAS = (1024, 1536)  # portrait; matches T1's plan aspect
@@ -79,8 +89,55 @@ def _read_key():
     return ""
 
 
-def _frame(plot_w, plot_d, road):
-    """Same scale/margins/transform as draw.svg_plan (T1: road North)."""
+def _frame(plot_w, plot_d, road, canvas=CANVAS, rooms=None):
+    """Same transform as draw.svg_plan, drawn on canvas.
+
+    rooms=None draws the whole plot centered (original framing).
+    rooms given crops tightly to the rooms' bounding box plus a
+    3 ft margin, scaled so the house fills the canvas: white
+    padding only makes up the output aspect, never a big border.
+    """
+    road = str(road or "south").strip().lower()
+    if road not in ("north", "south", "east", "west"):
+        road = "south"
+    cw, ch = canvas
+    if rooms:
+        xs = [float(r["x"]) for r in rooms] + \
+            [float(r["x"]) + float(r["w"]) for r in rooms]
+        ys = [float(r["y"]) for r in rooms] + \
+            [float(r["y"]) + float(r["d"]) for r in rooms]
+        margin = 3.0
+        x0, x1 = min(xs) - margin, max(xs) + margin
+        y0, y1 = min(ys) - margin, max(ys) + margin
+        # Rotated extents of the crop box (the rotation stays
+        # axis-aligned, so the box maps to a box).
+        if road == "south":
+            u0, u1, v0, v1 = x0, x1, plot_d - y1, plot_d - y0
+        elif road == "north":
+            u0, u1, v0, v1 = x0, x1, y0, y1
+        elif road == "east":
+            u0, u1, v0, v1 = (plot_d - y1, plot_d - y0,
+                              plot_w - x1, plot_w - x0)
+        else:  # west
+            u0, u1, v0, v1 = y0, y1, x0, x1
+        pad = 36  # small white edge; the house fills the frame
+        scale = min((cw - 2 * pad) / max(u1 - u0, 1.0),
+                    (ch - 2 * pad) / max(v1 - v0, 1.0))
+        ox = (cw - (u1 - u0) * scale) / 2.0 - u0 * scale
+        oy = (ch - (v1 - v0) * scale) / 2.0 - v0 * scale
+
+        def point(x, y):
+            if road == "south":
+                u, v = x, plot_d - y
+            elif road == "north":
+                u, v = x, y
+            elif road == "east":
+                u, v = plot_d - y, plot_w - x
+            else:  # west
+                u, v = y, x
+            return ox + u * scale, oy + v * scale
+
+        return point, scale
     draw_w = plot_w if road in ("north", "south") else plot_d
     draw_d = plot_d if road in ("north", "south") else plot_w
     scale = 800.0 / max(draw_w, 1.0)
@@ -91,8 +148,8 @@ def _frame(plot_w, plot_d, road):
         bottom = 122
     width = left + draw_w * scale + right
     height = top + draw_d * scale + bottom
-    ox = (CANVAS[0] - width) / 2.0
-    oy = (CANVAS[1] - height) / 2.0
+    ox = (cw - width) / 2.0
+    oy = (ch - height) / 2.0
 
     def point(x, y):
         if road == "south":
@@ -588,11 +645,13 @@ def _draw_shape(ink, shape, point):
 
 
 def draw_plan_png(rooms, open_plan, glass, angle, plot_w, plot_d,
-                  road):
-    """Clean line-plan PNG: walls/doors/windows/verandas/plot, no text."""
-    img = Image.new("RGB", CANVAS, "#ffffff")
+                  road, canvas=CANVAS):
+    """Annotated line-plan PNG on canvas: walls/doors/windows,
+    furniture outlines + type-only room labels, tightly cropped
+    to the house (no title, no dimensions)."""
+    img = Image.new("RGB", tuple(canvas), "#ffffff")
     ink = ImageDraw.Draw(img)
-    point, scale = _frame(plot_w, plot_d, road)
+    point, scale = _frame(plot_w, plot_d, road, canvas, rooms)
 
     # Plot boundary (thick).
     x0, y0 = point(0, 0)
@@ -709,11 +768,12 @@ def _window_lines(ink, point, scale, win):
 
 
 def overlay_labels(img, rooms, open_plan, glass, angle, plot_w,
-                   plot_d, road):
+                   plot_d, road, canvas=CANVAS):
     """Room-name labels only, centered; larger rooms win when two
-    labels would collide (smaller shrinks, then skips)."""
+    labels would collide (smaller shrinks, then skips). Must use
+    the same canvas + crop as the input it labels."""
     ink = ImageDraw.Draw(img, "RGBA")
-    point, scale = _frame(plot_w, plot_d, road)
+    point, scale = _frame(plot_w, plot_d, road, canvas, rooms)
     _ = (open_plan, glass, angle, scale)
     order = sorted(rooms,
                    key=lambda r: float(r["w"]) * float(r["d"]),
@@ -745,11 +805,11 @@ def overlay_labels(img, rooms, open_plan, glass, angle, plot_w,
 
 
 def drift_check_png(raw_img, rooms, open_plan, glass, angle,
-                    plot_w, plot_d, road):
+                    plot_w, plot_d, road, canvas=CANVAS):
     """Temp inspection aid: thin red wall outlines over the raw
     render, to judge whether the AI's walls drifted from ours."""
     ink = ImageDraw.Draw(raw_img)
-    point, scale = _frame(plot_w, plot_d, road)
+    point, scale = _frame(plot_w, plot_d, road, canvas, rooms)
     _ = scale
     placed = place_openings(rooms, open_plan, angle, glass)
     for seg in wall_segments(rooms, placed["doors"],
@@ -761,12 +821,16 @@ def drift_check_png(raw_img, rooms, open_plan, glass, angle,
     return raw_img
 
 
-def edit_image(plan_png, api_key=None, client=None):
+def edit_image(plan_png, api_key=None, client=None, size=None,
+               prompt=None):
     """One Muse Image edit call; returns the raw PNG bytes.
 
     Pass client (an OpenAI client, real or fake) to skip key
-    handling - used by tests.
+    handling - used by tests. size defaults to the portrait
+    canvas, prompt to the flat orthographic render prompt.
     """
+    size = tuple(size) if size is not None else CANVAS
+    prompt = prompt if prompt is not None else RENDER_PROMPT
     if client is None:
         key = (api_key or "").strip()
         if not key:
@@ -775,12 +839,12 @@ def edit_image(plan_png, api_key=None, client=None):
         client = OpenAI(api_key=key, base_url=BASE_URL)
     try:
         result = client.images.edit(
-            model=IMAGE_MODEL, prompt=RENDER_PROMPT,
+            model=IMAGE_MODEL, prompt=prompt,
             image=("plan.png", plan_png, "image/png"),
-            size="%dx%d" % CANVAS, n=1)
+            size="%dx%d" % size, n=1)
     except TypeError:  # older openai client: file object only
         result = client.images.edit(
-            model=IMAGE_MODEL, prompt=RENDER_PROMPT,
+            model=IMAGE_MODEL, prompt=prompt,
             image=io.BytesIO(plan_png), n=1)
     item = result.data[0]
     if getattr(item, "b64_json", None):
@@ -895,29 +959,37 @@ def _check_score(check):
 
 def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
                         plot_d, road, api_key=None,
-                        max_retries=2, client=None):
+                        max_retries=2, client=None, extra=""):
     """Render one option with auto-check; retry, keep the best.
 
-    Returns (final_png_bytes, check, attempts). At most
-    max_retries re-renders after a failed check; the kept image
-    is the one with the most rooms ok. A checker error keeps
-    the first render with check=None instead of burning
-    retries on the checker.
+    The input is tightly cropped to the house and padded only
+    to the shape-matched output size (landscape / portrait /
+    square); the client's extra instructions are appended to
+    the flat prompt. Returns (final_png_bytes, check,
+    attempts). At most max_retries re-renders after a failed
+    check; the kept image is the one with the most rooms ok.
+    A checker error keeps the first render with check=None
+    instead of burning retries on the checker.
     """
     best, best_check, attempts = None, None, 0
+    target = SIMPLE_SIZES[simple_shape(plot_w, plot_d, road)]
+    prompt = RENDER_PROMPT
+    if str(extra or "").strip():
+        prompt = prompt + " " + str(extra).strip()
     plan = draw_plan_png(rooms, open_plan, glass, angle, plot_w,
-                         plot_d, road)
+                         plot_d, road, target)
     buf = io.BytesIO()
     plan.save(buf, format="PNG")
     plan_bytes = buf.getvalue()
     for _ in range(max_retries + 1):
         attempts += 1
-        raw = edit_image(plan_bytes, api_key, client)
+        raw = edit_image(plan_bytes, api_key, client, target,
+                         prompt)
         final = Image.open(io.BytesIO(raw)).convert("RGB")
-        if final.size != CANVAS:
-            final = final.resize(CANVAS)
+        if final.size != target:
+            final = final.resize(target)
         overlay_labels(final, rooms, open_plan, glass, angle,
-                       plot_w, plot_d, road)
+                       plot_w, plot_d, road, target)
         out = io.BytesIO()
         final.save(out, format="PNG")
         final_bytes = out.getvalue()
@@ -937,20 +1009,16 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
 
 
 # ---------------------------------------------------------------------------
-# Simple path (Nov 1, current): the input is the SAME plan drawing the
-# client sees (walls, doors, windows, room names), padded with white to
-# the output aspect. No furniture outlines, no label overlay, no
-# auto-check retry loop - one Image call per render. The old path above
-# (draw_plan_png/edit_image/check_render/render_plan_checked) is kept
-# for history; the app and main() no longer use it.
-#
-# Bug fixed here: the old path always output portrait 2:3, so a wide
-# drawn plan came back rearranged to fill the tall frame (and a tall
-# drawn plan overflowed the fixed canvas and got clipped). Now the
-# output size matches the DRAWN plan's shape (after road rotation -
-# e.g. T7's wide plot draws portrait because road-East stands it
-# upright), and the input is padded (never stretched, never clipped)
-# to that exact aspect before sending.
+# Shape-matched sizes (kept from the Nov 1 simple path): the output
+# matches the DRAWN plan's shape (after road rotation - e.g. T7's
+# wide plot draws portrait because road-East stands it upright).
+# The rest of the simple path below (client-visible plan PNG in,
+# one Image call, no outlines/overlay/check) proved unfaithful live
+# (T1 rooms rearranged, WIDE a different house) and is superseded;
+# the faithful path above (outlines + flat prompt + overlay +
+# auto-check) is current again, now with these shape-matched sizes
+# and a tightly cropped input. The simple helpers stay for history;
+# the app and main() no longer use them.
 # ---------------------------------------------------------------------------
 
 SIMPLE_PROMPT = (
@@ -1217,10 +1285,9 @@ def render_plan_simple(rooms, open_plan, glass, angle, plot_w,
     return out.getvalue()
 
 
-SIMPLE_CASES = [
+FAITHFUL_CASES = [
     # (tag, program, frontage, depth, road, toilets, wishes, angle)
     ("T1", PROGRAM_3BED, 40, 60, "North", 3, "", None),
-    ("T7", None, 70, 40, "East", 3, WISHES_T7, 90),  # program built below
     ("WIDE", PROGRAM_2BED, 60, 40, "South", 2, "", None),
 ]
 
@@ -1231,9 +1298,7 @@ def main(export_only=False):
         print("META_API_KEY missing (env or .env); cannot run.")
         return
     os.makedirs("review/renders", exist_ok=True)
-    for tag, program, fw, fd, road, ntoilets, wishes, angle in SIMPLE_CASES:
-        if program is None:  # T7 carries room features from wishes
-            program = _program_t7()
+    for tag, program, fw, fd, road, ntoilets, wishes, angle in FAITHFUL_CASES:
         result = build_options(program, fw, fd, road, ntoilets,
                                wishes, angle)
         if not result["options"]:
@@ -1249,32 +1314,36 @@ def main(export_only=False):
         rooms = opt["placements"]
         open_plan = opt.get("open_plan", [])
         glass = opt.get("glass_partitions", [])
+        shape = simple_shape(plot["width"], plot["depth"],
+                             road_low)
+        target = SIMPLE_SIZES[shape]
         print("exporting %s-%s ..." % (tag, opt["label"]))
-        plan, shape, target = simple_input_png(
-            rooms, open_plan, glass, north, plot["width"],
-            plot["depth"], road_low)
-        plan.save("review/renders/%s_%s_simple_input.png"
+        plan = draw_plan_png(rooms, open_plan, glass, north,
+                             plot["width"], plot["depth"],
+                             road_low, target)
+        plan.save("review/renders/%s_%s_v2_input.png"
                   % (tag, opt["label"]))
         print("  shape %s, size %dx%d." % (shape, *target))
         if export_only:
             continue
-        print("rendering %s-%s (1 image call) ..." % (tag, opt["label"]))
-        raw = edit_image_simple(_png_bytes(plan), target,
-                                SIMPLE_PROMPT, key)
-        final = Image.open(io.BytesIO(raw)).convert("RGB")
-        if final.size != target:
-            print("  note: returned %s, expected %s; resized."
-                  % (final.size, target))
-            final = final.resize(target)
-        final.save("review/renders/%s_%s_simple_render.png"
-                   % (tag, opt["label"]))
+        print("rendering %s-%s (<=3 image + <=3 Spark calls) ..."
+              % (tag, opt["label"]))
+        final_bytes, check, attempts = render_plan_checked(
+            rooms, open_plan, glass, north, plot["width"],
+            plot["depth"], road_low, key)
+        with open("review/renders/%s_%s_v2_render.png"
+                  % (tag, opt["label"]), "wb") as handle:
+            handle.write(final_bytes)
+        if check is None:
+            print("  check unavailable after %d attempt(s)."
+                  % attempts)
+        else:
+            bad = [name for name, verdict in check["rooms"].items()
+                   if not verdict["ok"]]
+            print("  check after %d attempt(s): %s." % (
+                attempts, "every room passed" if not bad
+                else "flagged: %s" % ", ".join(bad)))
         print("saved %s-%s input + render." % (tag, opt["label"]))
-
-
-def _png_bytes(img):
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 
 if __name__ == "__main__":

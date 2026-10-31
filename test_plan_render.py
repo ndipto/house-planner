@@ -7,13 +7,14 @@ import base64
 import io
 import json
 
-from PIL import Image
+from PIL import Image, ImageOps
 
-from plan_render import (CANVAS, SIMPLE_PROMPT, check_render,
-                         edit_image, edit_image_simple,
-                         render_plan_checked, render_plan_simple,
-                         simple_input_png, simple_prompt,
-                         simple_shape)
+from plan_render import (CANVAS, SIMPLE_PROMPT, SIMPLE_SIZES,
+                         RENDER_PROMPT, check_render,
+                         draw_plan_png, edit_image,
+                         edit_image_simple, render_plan_checked,
+                         render_plan_simple, simple_input_png,
+                         simple_prompt, simple_shape)
 
 ROOMS = [
     {"name": "Kitchen", "type": "kitchen", "x": 1.5, "y": 4.0,
@@ -275,6 +276,64 @@ def test_simple_missing_key_raises():
     raise AssertionError("missing key must raise")
 
 
+def test_faithful_shape_matched():
+    good = _verdict([("Kitchen", True), ("Bedroom 1", True),
+                     ("Bath 1", True)])
+    client = _FakeClient(colors=["green"], replies=[good])
+    final, check, attempts = render_plan_checked(
+        ROOMS, [], [], 0.0, 60.0, 40.0, "south",
+        max_retries=2, client=client)
+    assert attempts == 1, "all-ok needs no retry"
+    assert check["all_ok"], "check passes"
+    assert client.images.calls == 1, "one image call"
+    assert client.images.last_kwargs["size"] == "1536x1024", \
+        "landscape size sent for a wide drawn plan"
+    assert Image.open(io.BytesIO(final)).size == (1536, 1024), \
+        "final keeps the landscape size"
+    print("PASS test_faithful_shape_matched")
+
+
+def test_faithful_extra_in_prompt():
+    good = _verdict([("Kitchen", True), ("Bedroom 1", True),
+                     ("Bath 1", True)])
+    client = _FakeClient(colors=["green"], replies=[good])
+    render_plan_checked(
+        ROOMS, [], [], 180.0, 40.0, 60.0, "north",
+        max_retries=0, client=client,
+        extra="marble tiles in living")
+    sent = client.images.last_kwargs["prompt"]
+    assert sent == RENDER_PROMPT + " marble tiles in living", \
+        "extra instructions appended to the flat prompt"
+    print("PASS test_faithful_extra_in_prompt")
+
+
+def test_faithful_tight_crop():
+    from test_layout import PROGRAM_2BED, PROGRAM_3BED
+    from typology import build_options
+
+    for prog, fw, fd, road, nt in ((PROGRAM_3BED, 40, 60, "North", 3),
+                                   (PROGRAM_2BED, 60, 40, "South", 2)):
+        result = build_options(prog, fw, fd, road, nt)
+        opt = result["options"][0]
+        plot = result["plot"]
+        target = SIMPLE_SIZES[simple_shape(
+            plot["width"], plot["depth"], str(plot["road"]))]
+        img = draw_plan_png(
+            opt["placements"], opt.get("open_plan", []),
+            opt.get("glass_partitions", []),
+            float(plot.get("north_angle", 0)), plot["width"],
+            plot["depth"], str(plot["road"]).lower(), target)
+        assert img.size == target, "input at the output size"
+        box = ImageOps.invert(img.convert("L")).getbbox()
+        assert box is not None, "input is not blank"
+        w_frac = (box[2] - box[0]) / img.width
+        h_frac = (box[3] - box[1]) / img.height
+        assert w_frac > 0.7 and h_frac > 0.7, \
+            "house fills the frame, got %.2f x %.2f" % (w_frac,
+                                                        h_frac)
+    print("PASS test_faithful_tight_crop (house fills the frame x2)")
+
+
 def main():
     test_check_all_ok()
     test_check_flags_wrong_room()
@@ -289,7 +348,10 @@ def main():
     test_simple_input_matches_plan()
     test_simple_single_call()
     test_simple_missing_key_raises()
-    print("13/13 plan-render tests pass.")
+    test_faithful_shape_matched()
+    test_faithful_extra_in_prompt()
+    test_faithful_tight_crop()
+    print("16/16 plan-render tests pass.")
 
 
 if __name__ == "__main__":

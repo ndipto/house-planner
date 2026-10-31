@@ -732,3 +732,68 @@ running all 34 others explicitly - the file's own runner
 still aborts at the first stuck one, pre-existing),
 render 3/3, voice 3/3, plan-render 13/13. Total 53/55.
 
+## Faithful render restored (Nov 1; committed, not pushed)
+
+The architect compared the simple-method renders with
+their plans and found them NOT faithful: T1 rooms
+rearranged (an extra study, bedrooms moved), WIDE a
+different house. The simple path is superseded (helpers
+kept in-file for history). Restored for "Render this
+plan": input with room names + furniture outlines,
+strictly flat orthographic prompt, labels-only overlay,
+Spark auto-check with up to 2 retries - plus the shape
+fix (output landscape / portrait / square by the drawn
+aspect) and a tight crop (house bbox + 3 ft margin + a
+small white edge, so padding only meets the aspect; no
+title, no dimensions - the old inputs never had them).
+Kept from the new UI: the "Extra instructions" box
+(appended to the flat prompt), "Regenerate", side-by-
+side plan + render, the caption, session state. The
+auto-check note is back in plain words: silent when
+every room passes, else "Compare these rooms with the
+plan: ..." (single sentence, room names only).
+
+Cost this task: 5 image + 5 Spark calls of the 8+8
+allowed (T1-A: 2+2, WIDE-A: 3+3 - both needed retries
+before the check passed everything, which is the loop
+doing its job). Files: review/renders/{T1,WIDE}_A_v2_
+{input,render}.png.
+
+Honest room-by-room verdicts (my eye, input vs render;
+the overlaid labels sit at OUR coordinates, so each
+label landing centered in the AI's matching furnished
+room is itself the alignment evidence):
+- T1-A (tall, portrait): MATCH. All 15 rooms in the
+  same places with fitting furniture: 3 bedrooms with
+  beds (no study - the simple-method failure is gone),
+  kitchen with counter/stove/sink/fridge, dining set in
+  Dining, sofas in Living + Family, WCs in Bath 1 /
+  Bath 2 / Common, shelves in Store, closet in
+  Wardrobe, chairs in Porch + jali Veranda, near-empty
+  Foyer. No room added, none removed, walls in the
+  same places. Nits (presentation only): a path
+  extends past the porch at top and a short path sits
+  below the house where the input has none; the "Bath
+  1 / Common Toilet" overlay labels touch in the tiny
+  rooms (pre-existing overlay crowding, also on the
+  input side).
+- WIDE-A (landscape): MATCH. All 15 rooms in the same
+  places with fitting furniture - including Dining
+  with its dining set, which the simple method misread
+  as baths + wardrobe twice. Store/Bath 1/Wardrobe
+  cluster, both bedrooms, both baths, kitchen + its
+  veranda, foyer + porch, family + living all correct.
+  Nits: the small back Veranda reads as a railed
+  terrace (same place, slightly grander); no AI text
+  in either raw image (labels are our overlay).
+- What this does NOT prove: one passing run per case
+  is not a reliability rate. The auto-check + retries
+  are the safety net (both cases used them), and the
+  "check against the plan" caption stays.
+
+Tests: plan-render 16/16 (8 auto-check + 5 simple-path
+history + 3 new: shape-matched size sent, extra text
+appended, tight crop fills the frame on T1-A + WIDE-A).
+Full suite: layout 34/36 (same 2 stuck fails),
+render 3/3, voice 3/3. Total 56/58.
+

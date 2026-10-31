@@ -40,12 +40,15 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026).
   checking are plain Python so every plan is reproducible and
   rule-traceable.
 - **Muse Image (`muse-image-1.0`)** — one colored presentation
-  render per option, from a "Render this plan" button: the same
-  plan drawing the client sees goes out (walls, doors, windows,
-  room names), padded to a shape-matched size (landscape for wide
+  render per option, from a "Render this plan" button: an
+  annotated line plan goes out (walls, doors, windows, room
+  names + furniture outlines, cropped tight to the house and
+  padded only to a shape-matched size — landscape for wide
   plans, portrait for tall, square for near-square), and comes
-  back as a top-down render from one short prompt plus the
-  client's extra instructions. Plan and render show side by side
+  back as a flat top-down render from a strict prompt plus the
+  client's extra instructions, with room-name labels overlaid
+  and every room auto-checked by Muse Spark (retries twice,
+  keeps the best). Plan and render show side by side
   ("AI presentation render - check against the plan"); a
   "Regenerate" button re-renders on demand.
 - **Muse Voice Transcribe (`muse-voice-transcribe-1.0`)** — speak the
@@ -60,14 +63,14 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (55 automated tests, no key needed; 53 green,
+Run the checks (58 automated tests, no key needed; 56 green,
 2 known-stuck placer fails documented in NIGHT_REPORT.md):
 
 ```bash
 python test_layout.py         # 36 placer/checker/drawing tests (T1-T8 included)
 python test_render.py         # 3 mocked Muse Image tests
 python test_voice.py          # 3 mocked Muse Voice tests
-python test_plan_render.py    # 13 mocked render tests (old auto-check + simple path)
+python test_plan_render.py    # 16 mocked render tests (faithful auto-check + shape/crop/extra)
 ```
 
 Re-save the review set after placer/drawing changes:
@@ -103,10 +106,11 @@ From the git history:
   friendly verdict labels ('All key rules met'/'Needs review' with
   plain sentences, OK/REVIEW review files); strict master-role swap
   attempt per option; pre-deploy check; results kept in session
-  state; rendered floor plans with Muse Image (first with furniture
-  outlines + a vision auto-check, then simplified: the
-  client-visible plan in, one short prompt, shape-matched size
-  out), wired into the app as "Render this plan" + "Regenerate"
+  state; rendered floor plans with Muse Image (furniture outlines
+  + flat prompt + labels-only overlay + vision auto-check; a
+  simplified try proved unfaithful live, so the faithful path was
+  restored with shape-matched output and tight house crop),
+  wired into the app as "Render this plan" + "Regenerate"
   with an extra-instructions box and side-by-side plan + render;
   client-friendly wording everywhere (plain titles, wishes line,
   design notes, "Architect's checklist" with Met / Not met /

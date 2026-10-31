@@ -11,16 +11,17 @@ import re
 from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
-from plan_render import render_plan_simple
+from plan_render import render_plan_checked
 from typology import build_options
 from voice import transcribe_audio
 
 
 def _render_option_plan(plot, option, extra=""):
-    """Colored presentation render of one option (one Image call).
+    """Colored presentation render of one option, auto-checked.
 
-    Returns the PNG bytes. Raises with a friendly message when
-    the key is missing or the call fails.
+    Returns (png_bytes, note): note names the rooms to compare
+    with the plan when the check flags any, else "". Raises with
+    a friendly message when the key is missing or the calls fail.
     """
     try:
         angle = float(plot.get("north_angle", 0)) % 360.0
@@ -32,11 +33,17 @@ def _render_option_plan(plot, option, extra=""):
             "META_API_KEY is missing, so no render was made. On "
             "Streamlit Cloud add it under Settings > Secrets; on your "
             "laptop put META_API_KEY=your-key-here in .env.")
-    return render_plan_simple(
+    png, check, _attempts = render_plan_checked(
         option["placements"], option.get("open_plan", []),
         option.get("glass_partitions", []), angle,
         float(plot["width"]), float(plot["depth"]),
-        str(plot["road"]).lower(), extra, key)
+        str(plot["road"]).lower(), key, extra=extra or "")
+    if check is None or check["all_ok"]:
+        return png, ""
+    bad = [name for name, verdict in check["rooms"].items()
+           if not verdict["ok"]]
+    return png, "Compare these rooms with the plan: %s." % (
+        ", ".join(bad))
 
 
 def _svg_for_option(plot, option):
@@ -542,6 +549,8 @@ if _has_results(st.session_state):
             for note in _design_notes(opt):
                 st.write("- " + note)
             cache = st.session_state.setdefault("plan_renders", {})
+            notes = st.session_state.setdefault("plan_render_notes",
+                                                {})
             extra = st.text_input(
                 "Extra instructions for the render (e.g. marble tiles "
                 "in living, bed against the north wall, plants on "
@@ -561,11 +570,14 @@ if _has_results(st.session_state):
                 with st.spinner("Making a presentation render of "
                                 "this plan..."):
                     try:
-                        cache[plan_key] = _render_option_plan(
+                        png, note = _render_option_plan(
                             plot, opt, extra or "")
                     except Exception as err:
                         _show_error("Could not render this plan.",
                                     err)
+                    else:
+                        cache[plan_key] = png
+                        notes[plan_key] = note
             if plan_key in cache:
                 left, right = st.columns(2)
                 with left:
@@ -577,6 +589,8 @@ if _has_results(st.session_state):
                         cache[plan_key],
                         caption="AI presentation render - check "
                                 "against the plan")
+                    if notes.get(plan_key):
+                        st.caption(notes[plan_key])
             else:
                 st.markdown(_svg_for_option(plot, opt),
                             unsafe_allow_html=True)
