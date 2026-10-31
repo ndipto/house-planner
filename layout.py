@@ -234,6 +234,7 @@ def _as_rect(room, x, y, width, depth):
         "bathroom_kind": str(room.get("bathroom_kind", "")).strip().lower(),
         "attached_to": str(room.get("attached_to", "")).strip(),
         "needs_veranda": bool(room.get("needs_veranda")),
+        "features": list(room.get("features") or []),
     }
 
 

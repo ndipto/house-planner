@@ -232,8 +232,9 @@ if st.button("Generate room program"):
             _show_error("Could not lay out the plan from this program.", err)
             st.stop()
     options = options_result["options"]
-    for item in options_result["notes"]:
-        st.write("- " + item)
+    with st.expander("Technical notes"):
+        for item in options_result["notes"]:
+            st.write("- " + item)
     if not options:
         st.warning("No option fits this plot; try a bigger plot or fewer rooms.")
         st.stop()

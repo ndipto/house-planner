@@ -1,4 +1,4 @@
-"""Save the T1-T6 regression briefs' options as SVG files for review.
+"""Save the T1-T7 regression briefs' options as SVG files for review.
 
 Run: .venv\\Scripts\\python.exe save_review.py
 Writes review/T<n>_<frontage>x<depth>_<road>_<label>_<verdict>.svg
@@ -10,7 +10,8 @@ placer/drawing changes (TASK 2 re-saves with doors and windows).
 import os
 
 from draw import svg_plan
-from test_layout import (_program_4bed, PROGRAM_2BED, PROGRAM_3BED)
+from test_layout import (_program_4bed, _program_t7, PROGRAM_2BED,
+                         PROGRAM_3BED, WISHES_T7)
 from typology import build_options
 
 BRIEFS = [
@@ -26,6 +27,7 @@ BRIEFS = [
     ("T5", PROGRAM_2BED, 30, 50, "North", 2, ""),
     ("T6", _program_4bed(), 50, 70, "West", 3,
      "garden, elderly parents need a bedroom near family living"),
+    ("T7", _program_t7(), 70, 40, "East", 3, WISHES_T7),
 ]
 
 
@@ -46,7 +48,7 @@ def main():
     except OSError as exc:
         print("cannot create review/: %s" % exc)
         return
-    lines = ["House Planner review set (T1-T6).", ""]
+    lines = ["House Planner review set (T1-T7).", ""]
     for name, program, fw, fd, road, ntoilets, wishes in BRIEFS:
         result = build_options(program, fw, fd, road, ntoilets, wishes)
         lines.append("%s: frontage %d, depth %d, road %s, wishes %r"

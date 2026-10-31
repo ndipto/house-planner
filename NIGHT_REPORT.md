@@ -311,3 +311,48 @@ Decisions needed (owner):
 3. Demo video (Nov 4): exterior render + voice brief are both
    in - pick which one stars in the recording.
 
+## Wide shallow plots (Nov 1, T7; committed, not pushed)
+
+Your brief (70x40, road East, 3 bed/3 bath, kitchen/reading/
+gaming wishes) built nothing: strips need 29 ft depth (have 25)
+and bands failed with "front rooms cannot fill 61 ft width".
+Fix in this commit (34/36 tests, same 2 stuck fails; 20/20
+review SVGs livable, incl. new T7 A/B):
+
+1. Leftover width is landscape now (typology.py): exact row
+   fills still rank first (old plans byte-identical: no T1-T6
+   SVG changed); partial fills leave the row end as garden
+   (3 ft+), and back-row slack over 6 ft becomes a Court, so
+   the built footprint reads as an L (two wings, court in the
+   open corner). The wished-garden check now needs the
+   garden_for flag so leftover landscape never fakes a MET.
+2. Dining-second retry (typology.py, one recursion, only when
+   plain bands fail): front kitchen/dining/foyer/living so
+   dining joins the open spaces; the back row splits its last
+   bedroom ahead of family under dining, the common sits
+   beside family, and family must overlap a space by 6 ft+.
+   Attempt 1 (dining-LAST) built A/B but islanded dining
+   (rules 12+16); the island is structural at the row end, so
+   attempt 2 moved dining second - A/B LIVABLE, zero fails.
+   T7-C stays honestly skipped (its mirror order strands a
+   bedroom); widely spaced bedrooms cannot all share one row
+   on 60 ft+ widths, which is why the retry reorders instead
+   of stretching.
+3. Rules untouched: the same checker verdicts everything
+   (T7 pins 4/5/7/13/16/19 PASS-or-bend, kitchen by dining
+   with no living touch, master 10%+ biggest).
+4. Features drawn (layout.py carries them, draw.py writes up to
+   2 italic lines when the room fits): "reading corner" and
+   "gaming setup" show inside Family Living and Bedroom 1 on
+   the T7 plans.
+5. T7 added (test_layout.py + save_review.py + 2 review SVGs).
+
+Also: placer/skip messages moved into a collapsed "Technical
+notes" expander in app.py; the no-fit case shows only its one
+friendly sentence (reasons stay one click away). Per-option
+notes were already inside collapsed detail expanders.
+
+Open: if you want T7-C built too (a 3rd compare option on very
+wide plots), say so - it needs a side-wing typology, a bigger
+change than this fix.
+

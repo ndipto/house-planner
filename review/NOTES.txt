@@ -1,4 +1,4 @@
-House Planner review set (T1-T6).
+House Planner review set (T1-T7).
 
 T1: frontage 40, depth 60, road North, wishes '-'
   Option A LIVABLE   fails=[-] wishes=[-] -> T1_40x60_North_A_LIVABLE.svg
@@ -29,3 +29,7 @@ T6: frontage 50, depth 70, road West, wishes 'garden, elderly parents need a bed
   Option A LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_A_LIVABLE.svg
   Option B LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_B_LIVABLE.svg
   Option C LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_LIVABLE.svg
+
+T7: frontage 70, depth 40, road East, wishes 'mom need big kitchen, but dad want a reading space in family living. i need my own space in my bedroom for gaming.'
+  Option A LIVABLE   fails=[-] wishes=[-] -> T7_70x40_East_A_LIVABLE.svg
+  Option B LIVABLE   fails=[-] wishes=[-] -> T7_70x40_East_B_LIVABLE.svg

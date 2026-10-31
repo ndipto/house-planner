@@ -575,7 +575,8 @@ def _wishes_table(rects, meta, buckets, directives, road, north_angle):
         rows.append((label, "MET" if near else "NOT MET"))
     if directives["garden"]:
         rows.append(("Garden with the living room", "MET"
-                     if any(r["type"] == "garden" for r in rects)
+                     if any(r["type"] == "garden" and r.get("garden_for")
+                             for r in rects)
                      else "NOT MET"))
     met = sum(1 for _wish, status in rows if status == "MET")
     total = sum(1 for _wish, status in rows if status != "SKIPPED")
@@ -1965,7 +1966,14 @@ def _width_score(entries, combo):
 
 
 def _ranked_widths(entries, target, depth, limit=30):
-    """Exact-fill width combos, best-scoring first (plus tried count)."""
+    """Width combos: exact fills first, then garden-leftover fills.
+
+    Returns ([(score, combo, leftover)], tried). Exact fills rank
+    before partial fills, so rows that can fill the width behave
+    exactly as before; a partial fill leaves leftover width for a
+    garden (3 ft+ usable; slivers and overflows are rejected, so
+    leftover width becomes landscape, never a failure).
+    """
     option_lists = []
     for room, kind, const in entries:
         if const is not None:
@@ -1975,13 +1983,19 @@ def _ranked_widths(entries, target, depth, limit=30):
     tried = 1
     for options in option_lists:
         tried *= max(len(options), 1)
-    scored = []
+    exact, partial = [], []
     for combo in itertools.product(*option_lists):
-        if abs(sum(combo) - target) > 0.01:
+        leftover = target - sum(combo)
+        if abs(leftover) > 0.01 and leftover < 3 - EPS:
             continue
-        scored.append((_width_score(entries, combo), list(combo)))
-    scored.sort(key=lambda item: (item[0], item[1]))
-    return scored[:limit], tried
+        if abs(leftover) <= 0.01:
+            exact.append((_width_score(entries, combo), list(combo), 0.0))
+        else:
+            partial.append((_width_score(entries, combo), list(combo),
+                            leftover))
+    exact.sort(key=lambda item: (item[0], item[1]))
+    partial.sort(key=lambda item: (item[0], item[2]))
+    return (exact + partial)[:limit], tried
 
 
 def _spans_for(kinds, widths, x0):
@@ -2000,7 +2014,7 @@ def _overlap_len(first, second):
 
 def _back_widths(back_cells, total, back_d, spans, x0, mirror,
                  has_family, master_name, common, front_master=None,
-                 master_area=0.0):
+                 master_area=0.0, touch_min=0.5):
     """(widths_or_None, store_residual, tried, fills) for the back band.
 
     Toilets keep fixed widths; the slack becomes a store slice (2 ft+,
@@ -2045,7 +2059,7 @@ def _back_widths(back_cells, total, back_d, spans, x0, mirror,
             fam_span = next(bounds[room["name"]] for room, kind in flex
                             if kind == "family living")
             touched = any(
-                _overlap_len(fam_span, span) >= 0.5 - EPS
+                _overlap_len(fam_span, span) >= touch_min - EPS
                 for kind, span in spans.items()
                 if kind in ("dining", "living room", "foyer"))
             if not touched:
@@ -2159,7 +2173,8 @@ def _bands_facing_notes(beds, low_beds, high_beds, directives, angle,
 
 
 def _wide_bands(buckets, build_w, build_d, notes, directives, road,
-                variant, north_angle=None, _classic=False):
+                variant, north_angle=None, _classic=False,
+                _fallback=False):
     """Shallow two-band option for wide plots (rects, info, meta).
 
     Front band (12 ft): kitchen always next to dining (hard rule 4),
@@ -2184,7 +2199,7 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
     angle = _resolve_angle(road, north_angle)
     front_bed = _front_wish_bed(beds, directives["facing"], angle)
     front_mode = front_bed is not None and buckets["family"] \
-        and variant != "cross" and not _classic
+        and variant != "cross" and not _classic and not _fallback
     front_name = front_bed["name"] if front_mode else None
     y0 = _y0_porch(buckets)
     front_d = 12.0
@@ -2258,6 +2273,12 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
                      "+ kitchen east (compare); the kitchen ends "
                      "the row, so no path crosses it.")
         order_front = ["living room", "foyer", "dining", "kitchen"]
+    if _fallback:
+        # Dining-second retry for very wide plots: dining sits
+        # between the kitchen (hard rule 4) and the foyer, so it
+        # joins the open spaces while the middle back bedrooms land
+        # under it and keep their doors.
+        order_front = ["kitchen", "dining", "foyer", "living room"]
     if front_bed is not None and not buckets["family"] \
             and variant != "cross":
         notes.append("No family living to anchor a front corner; %s stays "
@@ -2343,7 +2364,35 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
 
             return 5  # kitchen last (under dining, keeps its door)
         back_cells.sort(key=_cell_key)
-    if not front_mode and common is not None:
+    if _fallback and common is not None and not front_mode \
+            and buckets["family"]:
+        # Dining-second retry: the last bedroom (+ its bath) moves
+        # ahead of family under dining, the common sits beside
+        # family, the other bedrooms flank family - every bedroom
+        # keeps a family/dining door on very wide rows.
+        _beds = [i for i, cell in enumerate(back_cells)
+                 if cell[1] == "bedroom"]
+        if len(_beds) >= 2:
+            _last = _beds[-1]
+            _mv = [back_cells.pop(_last)]
+            if _last < len(back_cells) \
+                    and back_cells[_last][1] == "bathroom" \
+                    and back_cells[_last][0].get("attached_to") == \
+                    _mv[0][0]["name"]:
+                _mv.append(back_cells.pop(_last))
+            _fam = next(i for i, cell in enumerate(back_cells)
+                        if cell[1] == "family living")
+            for _k, _cell in enumerate(_mv):
+                back_cells.insert(_fam + _k, _cell)
+        _ci = next(i for i, cell in enumerate(back_cells)
+                   if cell[0] is common)
+        _fam = next(i for i, cell in enumerate(back_cells)
+                    if cell[1] == "family living")
+        _mover = back_cells.pop(_ci)
+        if _ci < _fam:
+            _fam -= 1
+        back_cells.insert(_fam, _mover)
+    if not front_mode and common is not None and not _fallback:
         # Round 2: the common toilet sits right after the low-end
         # bedrooms (beside family when there is one); dining now sits
         # by the kitchen, so the common no longer lands under it.
@@ -2363,22 +2412,32 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
                        if id(cell[0]) in _high) + 1
         back_cells.insert(_ii, back_cells.pop(_ci))
     front_w, chosen, residual, tried_back = None, None, 0.0, 0
+    front_left = 0.0
     saw_fills = False
     bed_pos = kinds.index("bedroom") if front_mode else None
-    for _score, combo in ranked:
+    for _score, combo, left in ranked:
         spans = _spans_for(kinds, combo, x0)
         if mirror:  # checks run in final (mirrored) coordinates
             spans = {kind: (2 * x0 + total - end, 2 * x0 + total - start)
                      for kind, (start, end) in spans.items()}
         master_area = combo[bed_pos] * front_d if front_mode else 0.0
+        _touch = 6.0 if _fallback else 0.5
         found = _back_widths(back_cells, total, back_d, spans, x0, mirror,
                              bool(buckets["family"]), master_name, common,
-                             front_name, master_area)
+                             front_name, master_area, _touch)
         tried_back += found[2]
         saw_fills = saw_fills or found[3]
         if found[0] is not None:
             front_w, chosen, residual = combo, found[0], found[1]
+            front_left = left
             break
+    if front_w is None and not _fallback:
+        # One retry with dining-last bands before giving up (very
+        # wide plots strand the far bedroom under the old orders).
+        notes.append("Retrying with dining-second bands (wide plot).")
+        return _wide_bands(buckets, build_w, build_d, notes, directives,
+                           road, variant, north_angle, _classic,
+                           _fallback=True)
     if front_w is None:
         if saw_fills:
             raise _Infeasible("bedrooms cannot all reach family/dining "
@@ -2388,6 +2447,15 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
     for kind, width in zip(kinds, front_w):
         rects.append(_as_rect(first[kind][0], cursor, y0, width, front_d))
         cursor += width
+    if front_left > 0.01:
+        # Wide plot: the front row cannot usefully fill the full
+        # width, so the leftover end becomes a court garden
+        # (landscape, never a failure). No garden_for flag: this is
+        # leftover landscape, not the wished living-room garden.
+        rects.append(_as_rect({"name": "Garden", "type": "garden"},
+                              cursor, y0, front_left, front_d))
+        notes.append("Garden fills the leftover %.0f ft at the end of "
+                     "the front row." % front_left)
     back_y = y0 + front_d
     cursor = x0
     flex_widths = iter(chosen)
@@ -2395,7 +2463,16 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
             if const is None]
     bed_widths = [width for (cell, kind), width in zip(flex, chosen)
                   if kind == "bedroom"]
-    if residual > 0.01:
+    if residual > 6.0:
+        # Wide plot, short back row: the open corner becomes a court
+        # garden, so the built footprint reads as an L (public wing +
+        # private wing joined at the corner). No garden_for (above).
+        rects.append(_as_rect({"name": "Court", "type": "garden"},
+                              cursor, back_y, residual, back_d))
+        cursor += residual
+        notes.append("Court garden fills the open %.0f ft corner "
+                     "(L plan)." % residual)
+    elif residual > 0.01:
         rects.append(_as_rect({"name": "Store", "type": "storage"},
                               cursor, back_y, residual, back_d))
         cursor += residual

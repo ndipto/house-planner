@@ -828,6 +828,52 @@ def test_t6_50x70_west_4bed_elderly():
           "verdict honest)")
 
 
+WISHES_T7 = ("mom need big kitchen, but dad want a reading space in "
+               "family living. i need my own space in my bedroom for gaming.")
+
+
+def _program_t7():
+    """T7 program: 3 bed + room features from the wishes."""
+    program = [dict(room, features=list(room.get("features", [])))
+               for room in PROGRAM_3BED]
+    for room in program:
+        if room["name"] == "Family Living":
+            room["features"] = ["reading corner"]
+        if room["name"] == "Bedroom 1":
+            room["features"] = ["gaming setup"]
+    return program
+
+
+def test_t7_70x40_east_3bed():
+    """T7: 70x40 road East, 3 bed, 3 toilets, kitchen/reading/gaming.
+
+    Very wide + shallow: strips need more depth and plain bands
+    cannot fill 61 ft, so the dining-second retry must build
+    livable options with the leftover width as garden (never a
+    failure). Room features from the wishes are drawn inside the
+    rooms on the plan.
+    """
+    result = build_options(_program_t7(), 70, 40, "East", 3, WISHES_T7, 90)
+    livable = _livable_options(result)
+    assert livable, "T7 needs at least one LIVABLE option"
+    for opt in livable:
+        assert opt["livability_fails"] == [], "no hard fails"
+        for rule_id in ("4", "5", "7", "13", "16", "19"):
+            assert _rule_status(opt, rule_id) in ("PASS", "BEND"), \
+                "rule %s passes on %s" % (rule_id, opt["label"])
+        assert any(r["type"] == "garden" for r in opt["placements"]), \
+            "leftover width becomes garden on %s" % opt["label"]
+        assert any("dining-second" in note for note in opt["notes"]), \
+            "built via the dining-second retry on %s" % opt["label"]
+        svg = svg_plan(_svg_for(opt, result["plot"]))
+        ET.fromstring(svg)
+        assert "reading corner" in svg, "family feature drawn"
+        assert "gaming setup" in svg, "bedroom feature drawn"
+        _assert_clean(opt, result["buildable"], result["plot"])
+    print("PASS test_t7_70x40_east_3bed (%d livable, garden + "
+          "features drawn)" % len(livable))
+
+
 def _doors_by_kind(doors):
     kinds = {}
     for door in doors:
@@ -851,6 +897,7 @@ def test_no_pending_rules():
          "garden, elderly parents need a bedroom near family living"),
         (PROGRAM_1BED, 40, 60, "North", 1, ""),
         (PROGRAM_2BED, 60, 40, "South", 2, ""),
+        (_program_t7(), 70, 40, "East", 3, WISHES_T7),
     ]
     count = 0
     for program, fw, fd, road, ntoilets, wishes in briefs:
@@ -1188,6 +1235,7 @@ if __name__ == "__main__":
     test_t4_50x40_south_open_south_master()
     test_t5_30x50_north_narrow()
     test_t6_50x70_west_4bed_elderly()
+    test_t7_70x40_east_3bed()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()

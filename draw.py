@@ -295,6 +295,13 @@ def _room_group(room, point, scale):
             out.append('<text x="%.1f" y="%.1f" font-size="10" '
                        'text-anchor="middle">%s</text>'
                        % (cx, y + height / 2 + 23, escape(area)))
+        for pos, feat in enumerate(list(room.get("features") or [])[:2]):
+            yy = y + height / 2 + 36 + pos * 13
+            if yy > y + height - 6:
+                break  # small room: the table still lists features
+            out.append('<text x="%.1f" y="%.1f" font-size="9" '
+                       'font-style="italic" text-anchor="middle">%s</text>'
+                       % (cx, yy, escape(str(feat)[:28])))
     out.append("</g>")
     return "".join(out)
 
