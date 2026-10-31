@@ -20,9 +20,11 @@ pushed to GitHub, and your Meta Model API key. Takes about 10 minutes.
 4. Under **Repository**, choose your `house-planner` repo.
 5. Under **Branch**, choose `main`.
 6. Under **Main file path**, type exactly: `app.py`
-7. Click **Deploy**. The first build installs `requirements.txt` and
-   takes a few minutes. The app opens but plan generation will fail
-   until step 2 is done (the key is missing) - that is expected.
+7. Under **Advanced settings**, set the Python version to **3.13**
+   (the version this repo is tested on).
+8. Click **Deploy**. The first build installs `requirements.txt` and
+   takes a few minutes. The app opens but shows "The AI service is
+   not configured" until step 2 is done - that is expected.
 
 ## 2. Add the API key in Secrets (never in the code)
 

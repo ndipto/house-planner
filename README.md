@@ -53,10 +53,10 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (35 automated tests, no key needed):
+Run the checks (41 automated tests, no key needed):
 
 ```bash
-python test_layout.py    # 29 placer/checker/drawing tests (T1-T6 included)
+python test_layout.py    # 35 placer/checker/drawing tests (T1-T8 included)
 python test_render.py    # 3 mocked Muse Image tests
 python test_voice.py     # 3 mocked Muse Voice tests
 ```
@@ -88,6 +88,12 @@ From the git history:
   windowed), exterior concept renders with Muse Image, Streamlit Cloud
   deploy guide, demo polish (example brief, one-line summaries,
   friendly errors), voice brief with Muse Voice Transcribe.
+- **Nov 1** — wide-shallow plots (leftover width as garden/court,
+  dining-second retry, T7); foyer as a zone inside living + veranda
+  doors swinging out (rules 34–35); big-master-toilet wish (T8);
+  friendly verdict labels ('All key rules met'/'Needs review' with
+  plain sentences, OK/REVIEW review files); strict master-role swap
+  attempt per option.
 
 ## Authorship note
 

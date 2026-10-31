@@ -421,3 +421,31 @@ swap accept a rule-18 FAIL (non-verdict) as the honest price,
 (b) shrink the big bath (loses the MET wish), or (c) a new
 side order for the third bedroom - say which.
 
+## Pre-deploy check (Nov 1; committed, not pushed)
+
+1. SECURITY: clean. `.env` was never tracked or committed (no
+   history); the 5 commits mentioning `META_API_KEY` carry only
+   the name plus `your-key-here` placeholders (verified by
+   value length, values never printed); no `sk-` strings in
+   history. `.env` and `.streamlit/secrets.toml` are both in
+   `.gitignore` (explicit rules, verified with check-ignore).
+2. Missing key: the app opens without a key (no top-level key
+   use) and Generate now shows "The AI service is not
+   configured" + where to put the key, then stops - no crash.
+   Verified by simulation: empty key reads "", the AI call
+   raises a friendly catchable error. (No server smoke test:
+   sandbox blocks sockets.)
+3. requirements.txt: exact match - streamlit, python-dotenv
+   and openai are the only third-party imports (app, AI,
+   render), all pinned; placer/drawing/voice/tests are
+   stdlib-only, so nothing test-only is required.
+4. DEPLOY.md: fixed 2 gaps - added the Python 3.13 version step
+   (matches local 3.13.2 + requirements) and the new
+   not-configured message. Main file app.py and secret
+   META_API_KEY already matched.
+5. README: test counts corrected (41: 35 layout incl. T1-T8 +
+   3 + 3) and a Nov 1 line added (wide plots, rules 34-35,
+   bigbath, friendly labels, master swap).
+6. Suite: 39/41 (same 2 stuck fails). Ready to push + deploy
+   with DEPLOY.md; the owner still owes one live mic test.
+

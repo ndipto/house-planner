@@ -8,7 +8,7 @@ import streamlit as st
 
 import re
 
-from ai_program import format_ft_in, get_room_program
+from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
 from render import exterior_prompt, generate_exterior
@@ -194,6 +194,12 @@ if st.button("Generate room program"):
         st.error("Number of toilets must be from 1 to %d (bedrooms + 1)." % max_toilets)
         st.stop()
 
+    if not get_api_key():
+        st.warning("The AI service is not configured.")
+        st.write("Add your Meta Model API key as META_API_KEY in the app's "
+                 "Secrets settings (Streamlit Cloud) or in a local .env "
+                 "file, then try again.")
+        st.stop()
     # While waiting, show a spinner so the page does not look frozen.
     with st.spinner("Asking Muse Spark for your room program..."):
         try:
