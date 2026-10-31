@@ -155,7 +155,8 @@ Project files:
 - `draw.py` — draws one option's SVG plan (solid walls, doors, windows) + the live plot preview `svg_plot_preview` (Day 2, walls/doors/windows Day 3).
 - `openings.py` — door/window placement + wall bands + gap audit, shared by the drawing and the checker (Day 3).
 - `test_layout.py` — typology options + minis + drawing checks, run `python test_layout.py` (Day 2, T1-T7 + Day 3 checks).
-- `render.py` — exterior concept prompt + Muse Image call (night queue Oct 31).
+- `render.py` — exterior concept prompt + Muse Image call (night queue Oct 31; superseded Nov 1, app no longer calls it).
+- `plan_render.py` — rendered floor plans: line-plan PNG export (furniture outlines + room labels) → Muse Image edit → labels-only overlay → Spark vision auto-check with retries (Nov 1).
 - `voice.py` — mic recording → supported WAV → Muse Voice Transcribe (night queue Oct 31).
 - `test_render.py`, `test_voice.py` — mocked Image/Voice tests, run `python test_render.py` / `python test_voice.py`.
 - `DEPLOY.md` — click-by-click Streamlit Community Cloud deploy steps (night queue Oct 31).
@@ -220,6 +221,7 @@ Update this list as we go (each item: date + one line).
 - [x] Nov 1: Friendly verdict labels ('All key rules met'/'Needs review' + sentences; OK/REVIEW review files); strict master-role swap attempt per option; 49x51 case test (19-only fails, swap correctly declined); 39/41 tests.
 - [x] Nov 1: Rendered floor plan experiment (exp_render_plan.py + review/renders/ T1 A/B/C raw+overlaid via /v1/images/edits; geometry exact, kitchen/bedroom furnishing swapped - Step 2 needs labeled input; app unchanged, pending review).
 - [x] Nov 1: Render experiment round 2 (furniture outlines in input, flat-view prompt, labels-only overlay; walls aligned, double walls gone, lawn good, but AI obeys outlines only 1 of 3 - B/C improvise; app unchanged, pending review).
+- [x] Nov 1: Rendered floor plans with auto-check (room-name labels + shelves in input win round 1 3/3; plan_render.py + Spark vision check_render with <=2 retries keeping best; "Render this plan" + "Regenerate" wired into app.py with session cache; 8/8 new mocked tests pass; pillow added to requirements).
 - [ ] Nov 2: Deployed to Streamlit Community Cloud (public link: _tbd_).
 - [ ] Nov 3: Stretch feature (_tbd_) or polish.
 - [ ] Nov 4: Demo video recorded + hackathon submitted.

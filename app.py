@@ -11,9 +11,42 @@ import re
 from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
-from render import exterior_prompt, generate_exterior
+from plan_render import render_plan_checked
 from typology import build_options
 from voice import transcribe_audio
+
+
+def _render_option_plan(plot, option):
+    """Colored presentation render of one option, auto-checked.
+
+    Returns (png_bytes, note). Raises with a friendly message
+    when the key is missing or the calls fail.
+    """
+    try:
+        angle = float(plot.get("north_angle", 0)) % 360.0
+    except (TypeError, ValueError):
+        angle = 0.0
+    key = (get_api_key() or "").strip()
+    if not key:
+        raise RuntimeError(
+            "META_API_KEY is missing, so no render was made. On "
+            "Streamlit Cloud add it under Settings > Secrets; on your "
+            "laptop put META_API_KEY=your-key-here in .env.")
+    png, check, attempts = render_plan_checked(
+        option["placements"], option.get("open_plan", []),
+        option.get("glass_partitions", []), angle,
+        float(plot["width"]), float(plot["depth"]),
+        str(plot["road"]).lower(), key)
+    if check is None:
+        note = "Room check unavailable; showing the render as is."
+    elif check["all_ok"]:
+        note = "Room check: every room passed."
+    else:
+        bad = [name for name, verdict in check["rooms"].items()
+               if not verdict["ok"]]
+        note = "Room check flagged: %s (best of %d kept)." % (
+            ", ".join(bad), attempts)
+    return png, note
 
 
 def _svg_for_option(plot, option):
@@ -353,26 +386,37 @@ if _has_results(st.session_state):
             st.write("Fail: %s; bend: %s."
                      % (", ".join(fails) if fails else "none",
                         ", ".join(bends) if bends else "none"))
-            cache = st.session_state.setdefault("exteriors", {})
+            cache = st.session_state.setdefault("plan_renders", {})
+            notes = st.session_state.setdefault("plan_render_notes",
+                                                {})
             plan_key = "%s|%s|%d" % (
                 opt["label"], opt["title"],
                 hash(repr(opt["placements"])))
             if plan_key in cache:
-                st.image(cache[plan_key],
-                         caption="Exterior concept (AI render)")
-            if st.button("Generate exterior concept",
-                         key="ext_%s" % opt["label"]):
-                prompt = exterior_prompt(plot, opt)
-                with st.spinner(
-                        "Rendering the exterior with Muse Image..."):
+                want_render = st.button(
+                    "Regenerate", key="regen_%s" % opt["label"])
+            else:
+                want_render = st.button(
+                    "Render this plan",
+                    key="render_%s" % opt["label"])
+            if want_render:
+                with st.spinner("Rendering this plan with Muse "
+                                "Image (auto-checking rooms)..."):
                     try:
-                        png = generate_exterior(prompt)
+                        png, note = _render_option_plan(plot, opt)
                     except Exception as err:
-                        _show_error("Could not render this view.", err)
+                        _show_error("Could not render this plan.",
+                                    err)
                     else:
                         cache[plan_key] = png
-                        st.image(png,
-                                 caption="Exterior concept (AI render)")
+                        notes[plan_key] = note
+            if plan_key in cache:
+                st.image(
+                    cache[plan_key],
+                    caption="AI presentation render - check "
+                            "against the plan")
+                if notes.get(plan_key):
+                    st.caption(notes[plan_key])
 
     if len(options) == 2:
         st.info("Two layouts fit this plot shape.")

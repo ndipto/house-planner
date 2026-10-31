@@ -39,8 +39,12 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026).
   program, the only AI call in the pipeline. Placement, drawing and
   checking are plain Python so every plan is reproducible and
   rule-traceable.
-- **Muse Image (`muse-image-1.0`)** — one exterior concept render per
-  option, from a "Generate exterior concept" button (verified live).
+- **Muse Image (`muse-image-1.0`)** — one colored presentation
+  render per option, from a "Render this plan" button: the plan
+  goes out with furniture outlines + room names, comes back as a
+  flat top-down render, and Muse Spark auto-checks every room's
+  furniture (retries twice, keeps the best). A "Regenerate"
+  button re-renders on demand.
 - **Muse Voice Transcribe (`muse-voice-transcribe-1.0`)** — speak the
   brief into the microphone; the transcript fills the wishes box
   (code + mocked tests done, needs one live microphone test).
@@ -53,12 +57,13 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (41 automated tests, no key needed):
+Run the checks (49 automated tests, no key needed):
 
 ```bash
-python test_layout.py    # 35 placer/checker/drawing tests (T1-T8 included)
-python test_render.py    # 3 mocked Muse Image tests
-python test_voice.py     # 3 mocked Muse Voice tests
+python test_layout.py         # 35 placer/checker/drawing tests (T1-T8 included)
+python test_render.py         # 3 mocked Muse Image tests
+python test_voice.py          # 3 mocked Muse Voice tests
+python test_plan_render.py    # 8 mocked render auto-check tests
 ```
 
 Re-save the review set after placer/drawing changes:
@@ -93,7 +98,11 @@ From the git history:
   doors swinging out (rules 34–35); big-master-toilet wish (T8);
   friendly verdict labels ('All key rules met'/'Needs review' with
   plain sentences, OK/REVIEW review files); strict master-role swap
-  attempt per option.
+  attempt per option; pre-deploy check; results kept in session
+  state; rendered floor plans with Muse Image (furniture outlines
+  + room-name labels in, flat top-down render out) with a Muse
+  Spark vision auto-check per room, wired into the app as "Render
+  this plan" + "Regenerate".
 
 ## Authorship note
 

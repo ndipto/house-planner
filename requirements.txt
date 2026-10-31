@@ -13,3 +13,7 @@ python-dotenv==1.2.4
 # so we use the standard OpenAI client and just change the base URL.
 # (No Meta-published Python SDK to install, per PROJECT.md.)
 openai==3.41.0
+
+# Draws the plan PNG sent to Muse Image and the labels on the
+# rendered plan (pure pip, no system package, Cloud-safe).
+pillow==13.0.0

@@ -1,39 +1,44 @@
-# exp_render_plan.py
-# RENDER EXPERIMENT (not wired into the app): rendered floor plans.
+# plan_render.py
+# Rendered floor plans: line plan -> Muse Image edit -> labeled render.
 #
-# What this script does (T1 options A/B/C only):
-#   1. Exports each option as a PNG plan (walls, doors, windows,
-#      verandas/porch outlines, plot boundary; no text, no dims) using
-#      the SAME scale/margins/transform as draw.svg_plan. Round 2
-#      also draws simple furniture outlines per room type (beds,
-#      kitchen counter, toilet fixtures, sofas, dining set) so the
-#      AI furnishes the right rooms, kept clear of door swings.
-#   2. Sends it to Muse Image EDIT mode (POST /v1/images/edits,
-#      model muse-image-1.0) asking for a flat orthographic colored
-#      top-down render that keeps every wall and furniture piece
-#      where it is.
-#   3. Overlays room-name labels only (round 1 overlaid walls too,
-#      which doubled the AI's 3D walls).
-#   4. Saves input/raw/overlaid PNGs to review/renders/ for review.
+# What this file does (any option, not just T1):
+#   1. draw_plan_png() exports an option as a PNG plan (walls, doors,
+#      windows, verandas/porch outlines, plot boundary) using the
+#      SAME scale/margins/transform as draw.svg_plan, plus gray
+#      furniture outlines per room type (kept clear of door swings)
+#      and large type-only room labels so the AI reads each room's
+#      function instead of guessing it.
+#   2. edit_image() sends it to Muse Image EDIT mode
+#      (POST /v1/images/edits, model muse-image-1.0) asking for a
+#      flat orthographic colored top-down render.
+#   3. overlay_labels() draws room-name labels only on the result.
+#   4. check_render() asks Muse Spark (vision) to verify each
+#      room's furniture; render_plan_checked() retries the render
+#      (at most 2 retries) and keeps the best one.
+# Running the file directly re-runs the T1 A/B/C experiment set
+# into review/renders/.
 #
 # Docs: dev.meta.ai/docs/image-generation ("Edit an image"):
 # client.images.edit(model, prompt, image, size, n) - OpenAI-compatible.
+# dev.meta.ai/docs/image-understanding: Spark vision via the
+# Responses API with an input_image block (base64 data URL).
 # Pillow is pure pip (no system package), so this path also works on
-# Streamlit Cloud. Cost: 3 image calls per round for T1 A/B/C.
+# Streamlit Cloud.
 #
-# Run: .venv\Scripts\python.exe exp_render_plan.py
-#      .venv\Scripts\python.exe exp_render_plan.py export-only
+# Run: .venv\Scripts\python.exe plan_render.py
+#      .venv\Scripts\python.exe plan_render.py export-only
 # (export-only redraws the input PNGs without calling the API).
 
 import base64
 import io
+import json
 import math
 import os
 
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
 
-from ai_program import BASE_URL
+from ai_program import BASE_URL, MODEL_NAME
 from draw import svg_plan  # noqa: F401 (kept: same geometry source)
 from layout import SHORT_NAMES
 from openings import UNWALLED_TYPES, place_openings, wall_segments
@@ -759,9 +764,18 @@ def drift_check_png(raw_img, rooms, open_plan, glass, angle,
     return raw_img
 
 
-def edit_image(plan_png, api_key):
-    """One Muse Image edit call; returns the raw PNG bytes."""
-    client = OpenAI(api_key=api_key, base_url=BASE_URL)
+def edit_image(plan_png, api_key=None, client=None):
+    """One Muse Image edit call; returns the raw PNG bytes.
+
+    Pass client (an OpenAI client, real or fake) to skip key
+    handling - used by tests.
+    """
+    if client is None:
+        key = (api_key or "").strip()
+        if not key:
+            raise RuntimeError("META_API_KEY is missing, so no "
+                               "render was made.")
+        client = OpenAI(api_key=key, base_url=BASE_URL)
     try:
         result = client.images.edit(
             model=IMAGE_MODEL, prompt=RENDER_PROMPT,
@@ -779,6 +793,150 @@ def edit_image(plan_png, api_key):
         with urllib.request.urlopen(item.url, timeout=60) as resp:
             return resp.read()
     raise RuntimeError("Muse Image returned no image")
+
+
+CHECK_PROMPT = """You are checking an AI-rendered top-down \
+colored floor plan. Each room carries a printed label with its \
+name. For EVERY room in the list below, look at the furniture \
+drawn inside it and judge whether it matches the room type.
+
+Mark a room ok=false when it holds furniture from another \
+room's job: a bed anywhere except a bedroom; kitchen counters, \
+stove or sink anywhere except the kitchen; a toilet or basin \
+anywhere except a bathroom; a dining table anywhere except \
+dining. Bedrooms must show a bed; the kitchen must show a \
+counter with stove or sink; bathrooms must show toilet \
+fixtures; living rooms and family living must show a sofa or \
+seating; stores and wardrobes must show shelves, boxes or a \
+closet; verandas and porches must show at most a small chair, \
+table or plants; the foyer should be near-empty (a small \
+console, a plant, or up to two small chairs is fine - fail \
+only on a bed, sofa, dining set, counter, or toilet/basin). \
+Small extras that belong to the room (fridge in kitchen, TV \
+in a living space, plants, extra chairs) are FINE and stay \
+ok=true.
+
+Reply with JSON only: {"rooms": [{"name": "<exact room name, \
+copied character-for-character from the list>", "ok": true or \
+false, "seen": "<short description of the furniture you \
+see>"}]}. You MUST return one entry for EVERY room in the \
+list, including the rooms that pass - never skip a room and \
+never return only the failures.
+
+Room list (names only, one per line):
+%s"""
+
+
+def check_render(final_png, rooms, api_key=None, client=None):
+    """Ask Muse Spark (vision) to check each room's furniture.
+
+    final_png: the labeled render bytes. rooms: placement dicts
+    with name/type. Returns {"rooms": {name: {"ok": bool,
+    "seen": str}}, "all_ok": bool}. Raises RuntimeError when the
+    key is missing or the reply does not parse.
+    """
+    if client is None:
+        key = (api_key or "").strip()
+        if not key:
+            raise RuntimeError("META_API_KEY is missing, so the "
+                               "render cannot be checked.")
+        client = OpenAI(api_key=key, base_url=BASE_URL)
+    listed = "\n".join("- %s" % r.get("name", "?")
+                       for r in rooms)
+    data_url = "data:image/png;base64,%s" % base64.b64encode(
+        final_png).decode("ascii")
+    try:
+        response = client.responses.create(
+            model=MODEL_NAME,
+            input=[{"role": "user", "content": [
+                {"type": "input_text",
+                 "text": CHECK_PROMPT % listed},
+                {"type": "input_image", "image_url": data_url}]}],
+            text={"format": {"type": "json_object"}},
+            # Spark reasons before answering (vision check uses
+            # ~2.5k reasoning tokens); the cap must leave room
+            # for the JSON verdict after the thinking.
+            max_output_tokens=8000)
+        raw = response.output_text
+    except AttributeError:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": CHECK_PROMPT % listed},
+                {"type": "image_url",
+                 "image_url": {"url": data_url}}]}],
+            response_format={"type": "json_object"})
+        raw = response.choices[0].message.content
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        parsed = json.loads(text)
+        verdicts = parsed["rooms"]
+    except (ValueError, KeyError, TypeError):
+        raise RuntimeError("The checker reply did not parse as "
+                           "JSON: %s" % (raw or "")[:120])
+    out = {}
+    for item in verdicts:
+        try:
+            out[str(item["name"])] = {
+                "ok": bool(item["ok"]),
+                "seen": str(item.get("seen", ""))}
+        except (KeyError, TypeError):
+            continue
+    for room in rooms:
+        out.setdefault(str(room.get("name", "?")),
+                       {"ok": False, "seen": "not judged"})
+    return {"rooms": out,
+            "all_ok": all(v["ok"] for v in out.values())}
+
+
+def _check_score(check):
+    """Number of rooms judged ok (best-render ranking)."""
+    return sum(1 for v in check["rooms"].values() if v["ok"])
+
+
+def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
+                        plot_d, road, api_key=None,
+                        max_retries=2, client=None):
+    """Render one option with auto-check; retry, keep the best.
+
+    Returns (final_png_bytes, check, attempts). At most
+    max_retries re-renders after a failed check; the kept image
+    is the one with the most rooms ok. A checker error keeps
+    the first render with check=None instead of burning
+    retries on the checker.
+    """
+    best, best_check, attempts = None, None, 0
+    plan = draw_plan_png(rooms, open_plan, glass, angle, plot_w,
+                         plot_d, road)
+    buf = io.BytesIO()
+    plan.save(buf, format="PNG")
+    plan_bytes = buf.getvalue()
+    for _ in range(max_retries + 1):
+        attempts += 1
+        raw = edit_image(plan_bytes, api_key, client)
+        final = Image.open(io.BytesIO(raw)).convert("RGB")
+        if final.size != CANVAS:
+            final = final.resize(CANVAS)
+        overlay_labels(final, rooms, open_plan, glass, angle,
+                       plot_w, plot_d, road)
+        out = io.BytesIO()
+        final.save(out, format="PNG")
+        final_bytes = out.getvalue()
+        try:
+            check = check_render(final_bytes, rooms, api_key,
+                                 client)
+        except Exception:
+            if best is None:
+                return final_bytes, None, attempts
+            return best, best_check, attempts
+        if best is None or _check_score(check) > _check_score(
+                best_check):
+            best, best_check = final_bytes, check
+        if check["all_ok"]:
+            return best, best_check, attempts
+    return best, best_check, attempts
 
 
 def main(export_only=False):

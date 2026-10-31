@@ -623,3 +623,36 @@ image, 0/30 Spark).
 Verdict: 3/3 CORRECT - SUCCESS in round 1. No further
 rounds needed (ideas 2-4 untried, kept in reserve).
 
+### Auto-check + wiring (same task, committed)
+
+Built once round 1 hit 3/3: check_render() sends the
+labeled final + room list to Muse Spark vision (Responses
+API, input_image block, base64 data URL, JSON verdict per
+room) and render_plan_checked() retries the render at most
+twice, keeping the most-rooms-ok image (plan_render.py,
+renamed from exp_render_plan.py; 8 mocked tests in
+test_plan_render.py, all pass). Checker debugging, all
+verified live: the model echoed "Name (Type)" list lines,
+so the list is now names only; it returned failures only,
+so the prompt demands every room; its ~2.5k thinking
+tokens ate the first output cap (empty replies), so
+max_output_tokens=8000. Live proof: round-1 C scores
+all-ok; round-1 A/B flag only real minor extras (foyer
+bench, store basin, porch bench, one disputed store WC);
+and the known-bad round-2 C scores 5 rooms wrong with
+exactly the failures I judged by eye (bed in kitchen,
+island in living, dining set in family living, basin in
+store, empty wardrobe). Task cost: 3/30 image calls,
+12/30 Spark calls.
+Wired into the app: per-option "Render this plan" button
+(+ "Regenerate" once rendered), spinner, caption "AI
+presentation render - check against the plan", auto-check
+note under each render, results cached in st.session_state
+per plan (old "exteriors" cache abandoned; render.py kept
+for history but no longer called). requirements.txt gains
+pillow==13.0.0 (else Cloud crashes on the new import).
+Tests: 8/8 new mocked pass; layout 34/34 runnable pass
+(test_layout.py still aborts at the known stuck
+test_front_facing_master, pre-existing, untouched code);
+render + voice suites pass; app bare-imports OK.
+
