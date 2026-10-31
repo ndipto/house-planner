@@ -524,3 +524,58 @@ input PNG or the prompt so the AI furnishes the right
 rooms; the overlay already redraws clean labels on top.
 STOPPING here for review as instructed.
 
+## Render experiment round 2 (Nov 1; committed, not pushed)
+
+Still an experiment: the app is unchanged, nothing is wired
+in. Changes from round 1, all in exp_render_plan.py: the
+input PNG now carries gray furniture outlines per room type
+(bed + side tables + wardrobe; kitchen counter + stove +
+sink; WC + basin + shower; sofa + coffee + chairs; dining
+table + chairs; chair + plant on veranda/porch; foyer zone
+empty), each piece kept clear of door-swing/approach boxes;
+prompt switched to a strictly flat orthographic view with
+lawn + minimal paving; overlay is room-name labels ONLY
+(collision-free: larger rooms win, smaller shrink or skip),
+no walls. Same 9 files in review/renders/ replaced in
+place. Cost: 3 more image calls (6 total across rounds 1+2,
+at this task's cap).
+
+Fidelity (judged by eye, all 3 pairs + temp red-outline
+drift checks, since deleted):
+- Furniture in the right rooms? PARTLY - big variance
+  between calls. A is near-perfect: kitchen has the
+  counter/stove/sink, all 3 bedrooms have beds, living /
+  dining / family all correct. B kept the kitchen counter
+  but ADDED a full bed + wardrobe to the kitchen, and put
+  a dining set in the living room instead of the sofa set.
+  C repeated the round-1 swap: a bed in the kitchen and a
+  kitchen island with stools in the living room, plus a
+  dining set in family living instead of sofas. Small-box
+  misses in all 3: the jali veranda (A) rendered as a
+  bathroom; filler store boxes got a spare WC; a few
+  doubled basins and 2 extra dining chairs. Beds render
+  correctly 100% of the time; counters and sofa groups
+  are obeyed in A but reinterpreted in B/C - the AI seems
+  to classify the room first (from shape/position) and
+  furnishes from its own guess, treating outlines as a
+  suggestion rather than a command.
+- Walls aligned? YES. Drift checks show the AI's walls
+  within a couple of pixels of ours in all 3 options - no
+  thin-outline overlay needed. One style note: A kept the
+  input's black wall bands, B and C redrew them as thin
+  white walls (positions identical, color inconsistent
+  call to call).
+- Double walls gone? YES - flat prompt plus labels-only
+  overlay; no doubling anywhere.
+- Lawn? YES. All 3 have lawn + plants with only a short
+  path (C added a second rear path where no porch is -
+  minor). No text in any raw image, as prompted.
+
+Honest conclusion: furniture outlines alone do not
+reliably control the AI (1 of 3 fully compliant). If a
+round 3 is wanted, the next thing to try is room-name
+labels drawn INTO the input image (the AI can read; the
+"label" is input, the "No text" rule still covers the
+output), possibly with more distinctive outline shapes
+for sofas vs dining sets. STOPPING here for review.
+

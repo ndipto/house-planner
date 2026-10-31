@@ -219,6 +219,7 @@ Update this list as we go (each item: date + one line).
 - [x] Nov 1: Rules 34 (foyer zone in living) + 35 (veranda doors swing out); big-master-toilet wish (T8, 2 MET 1 honest NOT MET); "Two layouts fit" note; 36/38 tests.
 - [x] Nov 1: Friendly verdict labels ('All key rules met'/'Needs review' + sentences; OK/REVIEW review files); strict master-role swap attempt per option; 49x51 case test (19-only fails, swap correctly declined); 39/41 tests.
 - [x] Nov 1: Rendered floor plan experiment (exp_render_plan.py + review/renders/ T1 A/B/C raw+overlaid via /v1/images/edits; geometry exact, kitchen/bedroom furnishing swapped - Step 2 needs labeled input; app unchanged, pending review).
+- [x] Nov 1: Render experiment round 2 (furniture outlines in input, flat-view prompt, labels-only overlay; walls aligned, double walls gone, lawn good, but AI obeys outlines only 1 of 3 - B/C improvise; app unchanged, pending review).
 - [ ] Nov 2: Deployed to Streamlit Community Cloud (public link: _tbd_).
 - [ ] Nov 3: Stretch feature (_tbd_) or polish.
 - [ ] Nov 4: Demo video recorded + hackathon submitted.
