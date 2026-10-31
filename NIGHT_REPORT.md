@@ -449,3 +449,26 @@ side order for the third bedroom - say which.
 6. Suite: 39/41 (same 2 stuck fails). Ready to push + deploy
    with DEPLOY.md; the owner still owes one live mic test.
 
+## Session-state results (Nov 1; committed, not pushed)
+
+Cloud bug: "Generate exterior concept" reloaded the app to the
+empty start state - every button click reruns the script and
+the results only existed inside the Generate branch. Fixed in
+app.py: Generate now stores the room program + built options
+in st.session_state under a brief fingerprint (size, north,
+bedrooms, toilets, wishes); the whole results section renders
+from state on every rerun. Any input change clears stored
+results, so old plans never show for a new brief. Exterior
+buttons (unique key per option) keep their per-option image
+cache, so renders survive reruns; spinner + friendly error
+kept. Button audit: "Try an example" and voice fill inputs,
+so the fingerprint clears stale results for them
+automatically; exterior correctly exempt (same brief).
+Tests: test_session_state_helpers covers the fingerprint +
+store/stale/clear lifecycle directly (AppTest is socket
+blocked here). Suite 40/42, same 2 stuck fails.
+
+Tool folders: .agents/.eden/.hg/.muse/.sl were all empty and
+untracked (nothing to untrack, nothing deleted); added all
+five to .gitignore so they can never be committed.
+

@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local tool folders (agents, VCS helpers) - never commit these.
+.agents/
+.eden/
+.hg/
+.muse/
+.sl/

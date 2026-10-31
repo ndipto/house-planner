@@ -115,6 +115,40 @@ def _show_error(friendly, err):
         st.code("%s: %s" % (type(err).__name__, err))
 
 
+
+_RESULT_KEYS = ("result_signature", "result_program", "result_options")
+
+
+def _brief_signature(frontage_ft, depth_ft, north_angle, num_bedrooms,
+                     toilets_text, wishes):
+    """Fingerprint of the current brief; any input change alters it."""
+    return (float(frontage_ft), float(depth_ft), float(north_angle),
+            int(num_bedrooms), str(toilets_text).strip(),
+            str(wishes or ""))
+
+
+def _has_results(state):
+    """True when a full generated result is stored."""
+    return all(key in state for key in _RESULT_KEYS)
+
+
+def _results_stale(state, signature):
+    """True when stored results belong to an older brief."""
+    return _has_results(state) and state["result_signature"] != signature
+
+
+def _remember_results(state, signature, program, options):
+    """Store one generation (program + options) under the brief."""
+    state["result_signature"] = signature
+    state["result_program"] = program
+    state["result_options"] = options
+
+
+def _clear_results(state):
+    """Drop stored results (old plans never show for a new brief)."""
+    for key in _RESULT_KEYS:
+        state.pop(key, None)
+
 # --- Page title and short intro ---
 st.title("House Planner")
 st.write("A concept house planner for Bangladesh, built with an "
@@ -179,6 +213,11 @@ with preview_col:
     st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
                 unsafe_allow_html=True)
 
+_signature = _brief_signature(frontage_ft, depth_ft, north_angle,
+                              num_bedrooms, toilets_text, wishes)
+if _results_stale(st.session_state, _signature):
+    _clear_results(st.session_state)
+
 # --- Button: ask the AI, then show results ---
 if st.button("Generate room program"):
     # Toilets are required: stop with a clear message when empty/invalid.
@@ -211,7 +250,22 @@ if st.button("Generate room program"):
             _show_error("Could not get a room program. Check your API key "
                         "and connection, then try again.", err)
             st.stop()
+    rooms = result["rooms"]
+    with st.spinner("Building three layout options..."):
+        try:
+            options_result = build_options(
+                rooms, frontage_ft, depth_ft, road_side, num_toilets,
+                wishes, north_angle,
+            )
+        except Exception as err:
+            _show_error("Could not lay out the plan from this program.", err)
+            st.stop()
+    _remember_results(st.session_state, _signature, result,
+                        options_result)
 
+if _has_results(st.session_state):
+    result = st.session_state["result_program"]
+    options_result = st.session_state["result_options"]
     # 1. Rooms as a table (sizes in feet and inches).
     st.subheader("Rooms")
     rooms = result["rooms"]
@@ -266,15 +320,6 @@ if st.button("Generate room program"):
 
     # 6. Floor plan options: place rooms (plain Python), draw each SVG.
     st.subheader("Floor plan options")
-    with st.spinner("Building three layout options..."):
-        try:
-            options_result = build_options(
-                rooms, frontage_ft, depth_ft, road_side, num_toilets,
-                wishes, north_angle,
-            )
-        except Exception as err:
-            _show_error("Could not lay out the plan from this program.", err)
-            st.stop()
     options = options_result["options"]
     with st.expander("Technical notes"):
         for item in options_result["notes"]:

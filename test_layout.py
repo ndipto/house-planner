@@ -873,6 +873,42 @@ def test_friendly_issue_sentences():
     print("PASS test_friendly_issue_sentences")
 
 
+def test_session_state_helpers():
+    """Session-state helpers: brief fingerprint + result lifecycle.
+
+    (AppTest cannot run in this sandbox, so the helpers behind the
+    Generate/exterior flow are tested directly on a plain dict.)
+    """
+    import app
+
+    base = dict(frontage_ft=40, depth_ft=60, north_angle=0,
+                num_bedrooms=3, toilets_text="3", wishes="garden")
+    first = app._brief_signature(**base)
+    assert first == app._brief_signature(**base), "stable fingerprint"
+    for field, other in (("frontage_ft", 41), ("depth_ft", 61),
+                         ("north_angle", 90), ("num_bedrooms", 4),
+                         ("toilets_text", "2"), ("wishes", "office")):
+        changed = dict(base, **{field: other})
+        assert app._brief_signature(**changed) != first, \
+            "%s alters the fingerprint" % field
+    assert app._brief_signature(**dict(base, toilets_text=" 3 ")) \
+        == first, "toilet whitespace ignored"
+    assert app._brief_signature(**dict(base, wishes=None)) != first, \
+        "empty wishes differ"
+    state = {}
+    assert app._has_results(state) is False, "starts empty"
+    assert app._results_stale(state, first) is False, "nothing to clear"
+    app._remember_results(state, first, {"rooms": []}, {"options": []})
+    assert app._has_results(state) is True, "stored"
+    assert app._results_stale(state, first) is False, "fresh brief kept"
+    assert app._results_stale(state, ("other",)) is True, \
+        "changed brief detected"
+    app._clear_results(state)
+    assert app._has_results(state) is False, "cleared"
+    app._clear_results(state)  # clearing twice is safe
+    print("PASS test_session_state_helpers")
+
+
 def test_master_swap_helper():
     """_try_master_swap: largest takes the master name, baths follow."""
     rects = [
@@ -1387,6 +1423,7 @@ if __name__ == "__main__":
     test_master_role_swap_49x51()
     test_friendly_issue_sentences()
     test_master_swap_helper()
+    test_session_state_helpers()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()
