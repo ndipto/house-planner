@@ -258,15 +258,26 @@ def _room_group(room, point, scale):
     cx = x + width / 2
     dash = ' stroke-dasharray="7 4"' if room.get("type") == "garden" else ""
     fill = "#d5e5cf" if str(room.get("type", "")) == "garden" else "#fff"
+    if str(room.get("type", "")) == "foyer":
+        fill = "#efefef"  # rule 34: floor-finish change, not a box
     if str(room.get("type", "")) in UNWALLED_TYPES:
         box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
                'fill="%s" stroke="#000" stroke-width="1.6"%s/>'
                % (x, y, width, height, fill, dash))
     else:  # solid wall bands outline walled rooms; no stroke here
         box = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
-               'fill="#fff" stroke="none"/>'
-               % (x, y, width, height))
+               'fill="%s" stroke="none"/>'
+               % (x, y, width, height, fill))
     out = ['<g>' + box]
+    if str(room.get("type", "")) == "foyer":
+        # Rule 34: the foyer is a labeled zone inside the living
+        # room - name only, no dims/area (it is not a room).
+        _size = 11 if height >= 40 else 9
+        out.append('<text x="%.1f" y="%.1f" font-size="%d" '
+                   'text-anchor="middle">Foyer</text>'
+                   % (cx, y + height / 2 + 4, _size))
+        out.append("</g>")
+        return "".join(out)
     if room.get("screened_jali"):
         # Jali/screen wall: a heavy line just outside the road edge.
         jx0, jy0 = point(room["x"], room["y"] - 0.3)

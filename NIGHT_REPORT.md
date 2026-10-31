@@ -356,3 +356,36 @@ Open: if you want T7-C built too (a 3rd compare option on very
 wide plots), say so - it needs a side-wing typology, a bigger
 change than this fix.
 
+## Rules 34/35 + big master toilet (Nov 1; committed, not pushed)
+
+36/38 tests (same 2 stuck fails, zero regressions); all 20
+review SVGs re-saved with the new foyer zones and door swings
+(verdicts unchanged, T1-T7 still all livable).
+
+Rule 34 - foyer inside living (typology.py, openings.py,
+draw.py): foyer+living are always merged into one open pair
+(no wall, stub or door between them); the foyer draws as a
+gray labeled zone (floor-finish change, name only, no
+dims/area); the entry door sits at the foyer corner nearest
+the living room (new "faronly" fit with an any-corner
+fallback). Checker untouched: foyer stays a node for rules 5
+(still never entered from a bedroom) and 16, and the goal
+still sees porch + foyer.
+
+Rule 35 - veranda doors swing out (openings.py): bedroom and
+kitchen veranda doors now swing into the veranda (corner-hug
+kept). The checker never read swing direction, so only the
+drawing changed; pinned in test_foyer_zone_veranda_swing.
+
+Big master toilet (typology.py, test T8): "big ... toilet ...
+master" is now a detected wish. The master bath keeps up to
+6'-6" x 10'-0": width from the program (capped), depth grown
+by stack scoring that still lets door bearings dominate, so
+tight plots shrink it honestly instead of breaking doors.
+T8 (your 50x50 case): A/B MET at 6.5 x 10.0, C honest NOT MET
+at 6.5 x 7.5, all livable. wish table never 0/0 for it again.
+
+Also (app.py): two-option plots show "Two layouts fit this
+plot shape." under the options. No side-wing typology built,
+per your instruction.
+

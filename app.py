@@ -284,6 +284,8 @@ if st.button("Generate room program"):
                         st.image(png,
                                  caption="Exterior concept (AI render)")
 
+    if len(options) == 2:
+        st.info("Two layouts fit this plot shape.")
     # 7. Per-option detail (plans show solid walls, doors, windows).
     for opt in options:
         with st.expander("Option %s details: %s"

@@ -828,6 +828,88 @@ def test_t6_50x70_west_4bed_elderly():
           "verdict honest)")
 
 
+def _program_t8():
+    """T8 program: 3 bed, 2 toilets, master bath drawn big."""
+    program = [dict(r) for r in PROGRAM_3BED if r["name"] != "Bath 2"]
+    for room in program:
+        if room["name"] == "Bath 1":
+            room["width_ft"] = 6.5
+            room["depth_ft"] = 10.0
+    return program
+
+
+WISHES_T8 = "big bedroom, need big toilet with master bed"
+
+
+def test_t8_50x50_north_bigbath():
+    """T8: 50x50 road North, 3 bed, 2 toilets, big master toilet wish.
+
+    The wish must be detected (a table row, never 0/0) and the
+    master's bath kept large (up to 6'-6" x 10'-0"); options that
+    cannot fit it stay honest NOT MET instead of shrinking it
+    silently. All options stay livable.
+    """
+    result = build_options(_program_t8(), 50, 50, "North", 2, WISHES_T8,
+                           180)
+    assert result["options"], "T8 builds options"
+    met = 0
+    for opt in result["options"]:
+        assert opt["livable"] is True, "T8 %s livable" % opt["label"]
+        row = _wish_map(opt).get("Big toilet with the master bedroom")
+        assert row in ("MET", "NOT MET"), "wish detected on %s" \
+            % opt["label"]
+        master = [r for r in opt["placements"]
+                  if r["type"] == "bathroom"
+                  and r.get("attached_to") == "Bedroom 1"][0]
+        if row == "MET":
+            met += 1
+            assert master["w"] >= 6 - 0.01 and master["d"] >= 9 - 0.01, \
+                "MET means a big bath on %s" % opt["label"]
+        _assert_clean(opt, result["buildable"], result["plot"])
+    assert met >= 1, "at least one option keeps the big bath"
+    print("PASS test_t8_50x50_north_bigbath (%d MET)" % met)
+
+
+def test_foyer_zone_veranda_swing():
+    """Rules 34+35 on T1-A: foyer merged into living, entry at the
+    living-side corner, every veranda door swinging outward."""
+    result = build_options(PROGRAM_3BED, 40, 60, "North", 3)
+    opt = {o["label"]: o for o in result["options"]}["A"]
+    assert any(set(pair) == {"Foyer", "Living Room"}
+               for pair in opt["open_plan"]), "foyer merged into living"
+    placed = place_openings(opt["placements"], opt["open_plan"], 0.0)
+    doors = placed["doors"]
+    assert not any({d["room"], d["into"]} == {"Foyer", "Living Room"}
+                   for d in doors), "never a door between foyer/living"
+    entry = [d for d in doors if d["kind"] == "entry"]
+    assert len(entry) == 1, "one entry door"
+    by_name = {r["name"]: r for r in opt["placements"]}
+    foyer, living = by_name["Foyer"], by_name["Living Room"]
+    mid = ((entry[0]["x0"] + entry[0]["x1"]) / 2.0,
+           (entry[0]["y0"] + entry[0]["y1"]) / 2.0)
+    live_c = (living["x"] + living["w"] / 2.0,
+              living["y"] + living["d"] / 2.0)
+    foyer_c = (foyer["x"] + foyer["w"] / 2.0,
+               foyer["y"] + foyer["d"] / 2.0)
+
+    near = min(((foyer["x"], foyer["y"]),
+                (foyer["x"] + foyer["w"], foyer["y"]),
+                (foyer["x"], foyer["y"] + foyer["d"]),
+                (foyer["x"] + foyer["w"], foyer["y"] + foyer["d"])),
+               key=lambda c: abs(c[0] - live_c[0]) + abs(c[1] - live_c[1]))
+    assert (mid[0] - foyer_c[0]) * (near[0] - foyer_c[0]) > 0, \
+        "entry door on the living side of the foyer"
+    verandas = [d for d in doors if d["kind"] == "veranda"]
+    assert verandas, "veranda doors placed"
+    for door in verandas:
+        assert door["swing"] == door["into"], \
+            "%s swings outward" % door["into"]
+    svg = svg_plan(_svg_for(opt, result["plot"]))
+    assert "#efefef" in svg and ">Foyer</text>" in svg, \
+        "foyer drawn as a labeled zone"
+    print("PASS test_foyer_zone_veranda_swing")
+
+
 WISHES_T7 = ("mom need big kitchen, but dad want a reading space in "
                "family living. i need my own space in my bedroom for gaming.")
 
@@ -1236,6 +1318,8 @@ if __name__ == "__main__":
     test_t5_30x50_north_narrow()
     test_t6_50x70_west_4bed_elderly()
     test_t7_70x40_east_3bed()
+    test_t8_50x50_north_bigbath()
+    test_foyer_zone_veranda_swing()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()

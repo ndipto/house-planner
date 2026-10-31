@@ -11,9 +11,11 @@
 # a T-junction partition keeps a 3 in return (architect round 2).
 # Every door hugs a corner (4-6 in return), hinged on the corner side,
 # swinging against the wall; none is ever centered:
-#   entry 3.5: porch -> foyer (swings into the foyer);
+#   entry 3.5: porch -> foyer at the foyer corner next to the living
+#     room (swings into the foyer, toward the living space);
 #   spaces: foyer, living, dining, family are open SPACES in one area:
-#     wide openings with short wall stubs between them, never doors;
+#     wide openings with short wall stubs between them, never doors
+#     (except foyer + living: one space, no wall/stub at all);
 #   bedroom 3.0: bedroom -> family living, else dining, NEVER living/foyer;
 #   kitchen 3.0: kitchen -> dining at the corner farthest from the
 #     living room (glass never excuses the swing door), plus 2.5
@@ -22,7 +24,8 @@
 #   toilet 2.5: attached bath -> its dressing wardrobe (which opens to
 #     the bedroom), else its own bedroom directly; common bath -> dining
 #     or family living; wardrobe/store -> its bedroom, else a hub space;
-#   veranda 2.5: each veranda gets one door from its own room.
+#   veranda 2.5: each veranda gets one door from its own room,
+#     always swinging OUTWARD into the veranda at the corner end.
 # Window table (exterior walls, or walls facing the room's own veranda):
 #   bedroom 4.0 (two preferred, opposite walls when possible; a front
 #   bedroom always takes its road-side window), living 5.0, dining 4.0,
@@ -355,7 +358,8 @@ class _Placer:
 
         prefer "corner" hugs the run's start corner (never centered);
         "end" hugs the run's far end;
-        "far" hugs whichever run end lies nearer the target point.
+        "far" hugs whichever run end lies nearer the target point;
+        "faronly" is "far" with no other-end fallback.
         """
         host = self.by_name[host_name]
         other = self.by_name[other_name]
@@ -366,7 +370,7 @@ class _Placer:
                 continue
             low_clr = _wall_end_clearance(host, side, 0, self.rects)
             high_clr = _wall_end_clearance(host, side, 1, self.rects)
-            if prefer == "far" and target is not None:
+            if prefer in ("far", "faronly") and target is not None:
                 near_start = _point_on_wall(host, side, start + width / 2.0)
                 near_end = _point_on_wall(host, side, end - width / 2.0)
                 dist_start = abs(near_start[0] - target[0]) \
@@ -767,8 +771,29 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
     porches = by_type.get("porch", [])
     foyers = by_type.get("foyer", [])
     if porches and foyers:
-        placer._add_door("entry", ENTRY_W_FT, porches[0]["name"],
-                         foyers[0]["name"], foyers[0]["name"])
+        # Rule 34: the entry door sits at the foyer corner next to
+        # the living room, so you step in toward the living space.
+        _foy = foyers[0]
+        _livs = by_type.get("living room", [])
+        _corners = [(_foy["x"], _foy["y"]),
+                    (_foy["x"] + _foy["w"], _foy["y"]),
+                    (_foy["x"], _foy["y"] + _foy["d"]),
+                    (_foy["x"] + _foy["w"], _foy["y"] + _foy["d"])]
+        if _livs:
+            _anchor = (_livs[0]["x"] + _livs[0]["w"] / 2.0,
+                       _livs[0]["y"] + _livs[0]["d"] / 2.0)
+        else:
+            _anchor = (_foy["x"] + _foy["w"] / 2.0,
+                       _foy["y"] + _foy["d"] / 2.0)
+        _near = min(_corners,
+                    key=lambda c: abs(c[0] - _anchor[0])
+                    + abs(c[1] - _anchor[1]))
+        if not placer._add_door("entry", ENTRY_W_FT, porches[0]["name"],
+                         foyers[0]["name"], foyers[0]["name"],
+                         prefer="faronly", target=_near):
+            placer.problems.pop()  # living-side blocked; any corner
+            placer._add_door("entry", ENTRY_W_FT, porches[0]["name"],
+                             foyers[0]["name"], foyers[0]["name"])
     elif foyers:
         placer.problems.append("no entry door: porch missing")
 
@@ -856,7 +881,7 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
         for veranda in by_type.get("veranda", []):
             if veranda.get("veranda_for") == kitchen["name"]:
                 placer._add_door("veranda", VERANDA_W_FT, kitchen["name"],
-                                 veranda["name"], kitchen["name"])
+                                 veranda["name"], veranda["name"])
 
     # Wardrobe/store: opens to its bedroom as a dressing lobby, else to
     # a hub space, else the kitchen, else a bath. No sealed boxes.
@@ -935,7 +960,7 @@ def place_openings(rects, open_plan=None, north_angle=0.0,
                for d in placer.doors):
             continue
         placer._add_door("veranda", VERANDA_W_FT, host, veranda["name"],
-                         host, prefer="start")
+                         veranda["name"], prefer="start")
 
     # Windows: bedrooms two preferred (opposite wall first); a front
     # bedroom always takes its road-side (S) window first.

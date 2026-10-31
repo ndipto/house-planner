@@ -165,6 +165,7 @@ def _parse_wishes(wishes):
     text = (wishes or "").strip().lower()
     directives = {"combine": [], "glass": [], "refused": [],
                   "garden": False, "facing": [], "near": [],
+                  "bigbath": False,
                   "notes": []}
     if not text:
         return directives
@@ -249,6 +250,9 @@ def _parse_wishes(wishes):
             {"room": rooms[0], "near": rooms[1],
              "master": "master" in clean,
              "phrase": "%s near %s" % (first.strip(), second.strip())})
+    if re.search(r"\b(big|large|spacious)\b[^.]*\b(toilet|bath|bathroom)\b",
+                 text) and "master" in text:
+        directives["bigbath"] = True
     if "garden" in text or "courtyard" in text or "lawn" in text:
         directives["garden"] = True
         match = re.search(
@@ -401,15 +405,37 @@ def _spine_depths(spine_rooms, width, height, notes):
             relaxed_names, tried)
 
 
+def _mark_bigbath(buckets, master_name):
+    """Flag the master bath when the client wished it big (sized up).
+
+    Copies the bath dict before flagging: buckets alias the program
+    rooms, so mutating would leak the flag into other options.
+    """
+    if not master_name:
+        return
+    for index, bath in enumerate(buckets["bathrooms"]):
+        if bath.get("attached_to", "") == master_name:
+            marked = dict(bath)
+            marked["wants_big"] = True
+            buckets["bathrooms"][index] = marked
+
+
 def _bath_extra(bath, master_name):
-    """Slot extra for a bath: (real width, is_master_toilet).
+    """Slot extra for a bath: (real width, is_master_toilet, wants_big).
 
     Toilets keep a real 5 ft width (never stretched to fill the strip);
     the master toilet gets the longer 6-10 ft depth range instead of
     extra width, so side stacks stay compact enough for every door.
     """
     is_master = bath.get("attached_to", "") == master_name and bool(master_name)
-    return (5.0, is_master)
+    wanted = bool(bath.get("wants_big")) and is_master
+    width = 5.0
+    if wanted:
+        try:
+            width = min(max(float(bath.get("width_ft") or 5.0), 6.0), 6.5)
+        except (TypeError, ValueError):
+            width = 6.0
+    return (width, is_master, wanted)
 
 
 def _present_types(buckets):
@@ -574,10 +600,35 @@ def _wishes_table(rects, meta, buckets, directives, road, north_angle):
                    for a in group_a for b in group_b)
         rows.append((label, "MET" if near else "NOT MET"))
     if directives["garden"]:
-        rows.append(("Garden with the living room", "MET"
+        pass  # garden row appended after this dead block
+    if False:  # bigbath row lives below (out of the garden block)
+        _master = buckets["bedrooms"][0]["name"] if buckets["bedrooms"] \
+            else ""
+        _big = [r for r in rects if r["type"] == "bathroom"
+                and r.get("attached_to") == _master]
+        if not _big:
+            rows.append(("Big toilet with the master bedroom", "SKIPPED"))
+        else:
+            _met = any(r["w"] >= 6 - EPS and r["d"] >= 9 - EPS
+                       for r in _big)
+            rows.append(("Big toilet with the master bedroom",
+                         "MET" if _met else "NOT MET"))
+    if directives["garden"]: rows.append(("Garden with the living room", "MET"
                      if any(r["type"] == "garden" and r.get("garden_for")
                              for r in rects)
                      else "NOT MET"))
+    if directives.get("bigbath"):
+        _master = buckets["bedrooms"][0]["name"] if buckets["bedrooms"] \
+            else ""
+        _big = [r for r in rects if r["type"] == "bathroom"
+                and r.get("attached_to") == _master]
+        if not _big:
+            rows.append(("Big toilet with the master bedroom", "SKIPPED"))
+        else:
+            _met = any(r["w"] >= 6 - EPS and r["d"] >= 9 - EPS
+                       for r in _big)
+            rows.append(("Big toilet with the master bedroom",
+                         "MET" if _met else "NOT MET"))
     met = sum(1 for _wish, status in rows if status == "MET")
     total = sum(1 for _wish, status in rows if status != "SKIPPED")
     return rows, met, total
@@ -950,6 +1001,9 @@ def _slot_options(kind, room, strip_w, bath_info=None,
         if abs(depth - width) >= 1 - EPS:
             options.append(_half(depth))
         depth += 0.5
+    if kind in ("bath", "common") and isinstance(bath_info, tuple) \
+            and len(bath_info) > 2 and bath_info[2]:
+        options.reverse()  # wished-big bath: largest depth first
     if not options and bounded:
         return []
     if not options:  # best attempt: middle of range (checker reports it)
@@ -1036,6 +1090,11 @@ def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
                     score += reach * 2.0
                 if overlaps[0] >= pref - EPS:
                     score += 1.0  # preferred door-zone (family / dining)
+            if kind == "bath" and isinstance(extra, tuple) \
+                    and len(extra) > 2 and extra[2]:
+                # Wished-big bath: grow into slack (door bearings
+                # still dominate via satisfied, so doors keep fit).
+                score += depth * 10.0
             top -= depth
         score -= max(0.0, bottom) * 0.05
         key = (satisfied, score)
@@ -2490,7 +2549,8 @@ def _wide_bands(buckets, build_w, build_d, notes, directives, road,
                           0.0)
             is_master = _bath_extra(room, master_name)[1] and host_w and \
                 all(host_w >= other - EPS for other in bed_widths)
-            depth = min(9.0 if is_master else 8.0, back_d - 2.0)
+            depth = min(10.0 if _bath_extra(room, master_name)[2]
+                          else (9.0 if is_master else 8.0), back_d - 2.0)
             front_anchored = front_name is not None \
                 and room.get("attached_to") == front_name
             if room is common:
@@ -2875,6 +2935,17 @@ def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
                    num_toilets, notes, buckets, directives,
                    north_angle=None):
     """Check, score and shift one option to plot-local coordinates."""
+    if buckets["foyer"] and buckets["living"]:
+        # Rule 34: the foyer is the entry zone INSIDE the living
+        # room - one space, never a dividing wall, stub or door.
+        _foyer = buckets["foyer"][0]
+        _living = buckets["living"][0]
+        _fr = _by_name(rects, _foyer["name"])
+        _lr = _by_name(rects, _living["name"])
+        if _fr is not None and _lr is not None \
+                and shared_wall(_fr, _lr) > 0:
+            meta.setdefault("open_plan", []).append(
+                (_foyer["name"], _living["name"]))
     _door_bearing_nudge(rects, build_w, build_d, notes)
     title += _kitchen_veranda_variant(rects, label, build_w, build_d,
                                       notes)
@@ -3022,6 +3093,8 @@ def build_options(program_rooms, frontage_ft, depth_ft, road_side,
     buckets, bucket_notes = _buckets(program_rooms)
     result["notes"].extend(bucket_notes)
     directives = _parse_wishes(wishes)
+    if directives.get("bigbath") and buckets["bedrooms"]:
+        _mark_bigbath(buckets, buckets["bedrooms"][0]["name"])
     result["notes"].extend(directives["notes"])
     if build_w >= 30 - EPS and _west_strip_index(angle) is None:
         west_side = _closest_side(angle, 270.0)
