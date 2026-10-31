@@ -22,7 +22,8 @@ from layout import (RELAXED_RANGES, _check_all, livability_verdict,
                     _master_bedroom, shared_wall)
 from openings import (SPACE_TYPES, audit_gaps, place_openings,
                      wall_segments)
-from typology import _kitchen_veranda_variant, build_options
+from typology import _kitchen_veranda_variant, _try_master_swap, \
+    build_options
 
 
 def _room(name, room_type, width, depth, veranda=False, kind="", attached=""):
@@ -828,6 +829,69 @@ def test_t6_50x70_west_4bed_elderly():
           "verdict honest)")
 
 
+def test_master_role_swap_49x51():
+    """49x51 road North, bigbath wish: master squeezed, swap declined.
+
+    A/B fail ONLY rule 19 (master 140 vs Bedroom 3 210); every other
+    rule passes and the bigbath wish stays MET. The role swap is
+    correctly declined (it would break rule 18: the big bath would
+    no longer sit on the master). C is fully livable.
+    """
+    result = build_options(PROGRAM_3BED, 49, 51, "North", 3,
+                           "need big toilet with MASTER bed", 180)
+    by_label = {o["label"]: o for o in result["options"]}
+    assert set(by_label) == {"A", "B", "C"}, "three options built"
+    for label in ("A", "B"):
+        opt = by_label[label]
+        assert opt["livability_fails"] == ["19"], \
+            "only rule 19 fails on %s" % label
+        assert _wish_map(opt).get("Big toilet with the master bedroom") \
+            == "MET", "bigbath kept on %s" % label
+        assert not any("Master role goes" in n for n in opt["notes"]), \
+            "swap declined on %s" % label
+    assert by_label["C"]["livable"] is True, "C livable"
+    print("PASS test_master_role_swap_49x51 (19-only fails, swap "
+          "correctly declined)")
+
+
+def test_friendly_issue_sentences():
+    """Architect's exact sentences for failed hard rules."""
+    import app
+
+    opt = {"rules": [{"id": "19", "name": "Master bedroom largest",
+                      "status": "FAIL",
+                      "detail": "Bedroom 1 (140 sq ft) not 10% over "
+                                "Bedroom 3 (210 sq ft)"}],
+           "livability_fails": ["19"]}
+    assert app._friendly_issues(opt) == \
+        ["Master bedroom is smaller than Bedroom 3"]
+    opt = {"rules": [{"id": "4", "name": "Kitchen door", "status": "FAIL",
+                      "detail": "no shared wall"}],
+           "livability_fails": ["4"]}
+    assert app._friendly_issues(opt) == \
+        ["Kitchen door does not open into dining"]
+    print("PASS test_friendly_issue_sentences")
+
+
+def test_master_swap_helper():
+    """_try_master_swap: largest takes the master name, baths follow."""
+    rects = [
+        {"name": "Bedroom 1", "type": "bedroom", "w": 10.0, "d": 14.0},
+        {"name": "Bath 1", "type": "bathroom", "w": 5.0, "d": 6.0,
+         "bathroom_kind": "attached", "attached_to": "Bedroom 1"},
+        {"name": "Bedroom 3", "type": "bedroom", "w": 14.0, "d": 15.0},
+    ]
+    swapped = _try_master_swap(rects)
+    assert swapped is not None, "swap proposed"
+    by_name = {r["name"]: r for r in swapped}
+    assert (by_name["Bedroom 1"]["w"], by_name["Bedroom 1"]["d"]) == \
+        (14.0, 15.0), "largest takes the master name"
+    assert by_name["Bath 1"]["attached_to"] == "Bedroom 3", \
+        "bath follows its physical bedroom"
+    assert _try_master_swap(swapped) is None, "no-op once largest"
+    print("PASS test_master_swap_helper")
+
+
 def _program_t8():
     """T8 program: 3 bed, 2 toilets, master bath drawn big."""
     program = [dict(r) for r in PROGRAM_3BED if r["name"] != "Bath 2"]
@@ -1320,6 +1384,9 @@ if __name__ == "__main__":
     test_t7_70x40_east_3bed()
     test_t8_50x50_north_bigbath()
     test_foyer_zone_veranda_swing()
+    test_master_role_swap_49x51()
+    test_friendly_issue_sentences()
+    test_master_swap_helper()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()

@@ -389,3 +389,35 @@ Also (app.py): two-option plots show "Two layouts fit this
 plot shape." under the options. No side-wing typology built,
 per your instruction.
 
+## Friendly labels + master-role swap (Nov 1; committed, not pushed)
+
+39/41 tests (same 2 stuck fails, zero regressions); review/
+re-saved 20/20 OK with the new _OK/_REVIEW names (old
+_LIVABLE files removed; your 2 copy.jpg untouched).
+
+Labels: LIVABLE/UNLIVABLE never reach users anymore. Green
+"All key rules met", amber "Needs review" + one plain
+sentence per failed hard rule ("Master bedroom is smaller
+than Bedroom 3", "Kitchen door does not open into dining",
+...). Internal verdict booleans, ranking, rules-table
+PASS/FAIL words, and test/console wording are unchanged.
+
+Master-role swap (typology.py _try_master_swap, tried on
+every option, kept only when rule 19 is fixed AND the fail
+set strictly shrinks): the largest bedroom takes the master
+name and each attached bath keeps its physical bedroom; a
+full re-check gates acceptance. New 49x51 test: A/B fail
+ONLY 19 with the bigbath wish MET, C livable, swap correctly
+declined. Why declined (proven, 3 angles): the big bath
+(6.5x9.5) sits on Bedroom 1, so any swap detaching it fails
+rule 18 (master-only bounds); re-attaching it to the far
+bedroom fails rule 7 (no shared wall); and Bedroom 3 needs
+>=14.5 ft depth for its door bearing but <=13.6 ft for rule
+19 at master-max - jointly unsatisfiable in A/B's strip
+arrangement. The shrunk second pass already finds 19-clean
+sizes but correctly rejects them (a real bearing breaks).
+If you want A/B green anyway, the options are: (a) let the
+swap accept a rule-18 FAIL (non-verdict) as the honest price,
+(b) shrink the big bath (loses the MET wish), or (c) a new
+side order for the third bedroom - say which.
+

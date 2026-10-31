@@ -27,7 +27,8 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026).
    with swing arcs, windows, room names, sizes, areas, dimensions, road
    label and north arrow. Open-plan pairs share one open space (no wall).
 4. **Checker.** Every option is scored against 20 rules plus geometry G
-   and shown as LIVABLE or UNLIVABLE with the exact reasons — the same
+   and shown as 'All key rules met' or 'Needs review' (one plain
+   sentence per issue) — the same
    door/window gaps the drawing shows are the ones the checker verifies,
    so no rule stays unchecked.
 

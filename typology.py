@@ -58,6 +58,7 @@ from layout import (
     _closest_road,
     _closest_side,
     _exterior_walls,
+    _master_bedroom,
     _porch_size,
     _resolve_angle,
     _side_bearings,
@@ -2931,10 +2932,59 @@ def _kitchen_veranda_variant(rects, label, build_w, build_d, notes):
     return "; kitchen veranda on %s wall" % new_wall
 
 
+def _try_master_swap(rects):
+    """Swap master/largest bedroom names (+ bath links), or None.
+
+    When the designated master is smaller than another bedroom, the
+    largest bedroom takes the master name and every attached bath
+    keeps pointing at its own physical bedroom. Names only: geometry
+    never moves, so every door still fits. The caller re-checks and
+    keeps the swap only when rule 19 is fixed with no new fails.
+    """
+    beds = [r for r in rects if r["type"] == "bedroom"]
+    if len(beds) < 2:
+        return None
+    master = _master_bedroom(rects)
+    largest = max(beds, key=lambda r: r["w"] * r["d"])
+    if master is None or largest is master:
+        return None
+    if largest["w"] * largest["d"] <= master["w"] * master["d"]:
+        return None
+    renamed = {master["name"]: largest["name"],
+               largest["name"]: master["name"]}
+    swapped = []
+    for rect in rects:
+        moved = dict(rect)
+        if rect["name"] in renamed:
+            moved["name"] = renamed[rect["name"]]
+        if rect["type"] == "bathroom" \
+                and rect.get("attached_to") in renamed:
+            moved["attached_to"] = renamed[rect["attached_to"]]
+        swapped.append(moved)
+    return swapped
+
+
 def _finish_option(rects, info, meta, label, title, build_w, build_d, road,
                    num_toilets, notes, buckets, directives,
                    north_angle=None):
     """Check, score and shift one option to plot-local coordinates."""
+    swapped = _try_master_swap(rects)
+    if swapped is not None:
+        # Master-role swap: keep it only when rule 19 is fixed and
+        # every other rule still passes (fail set strictly shrinks).
+        _open = meta.get("open_plan", [])
+        _glass = meta.get("glass", [])
+        _fails0 = {r["id"] for r in _check_all(
+            rects, info, build_w, build_d, road, num_toilets,
+            north_angle, _open, _glass)[0] if r["status"] == "FAIL"}
+        _fails1 = {r["id"] for r in _check_all(
+            swapped, info, build_w, build_d, road, num_toilets,
+            north_angle, _open, _glass)[0] if r["status"] == "FAIL"}
+        if "19" in _fails0 and "19" not in _fails1 \
+                and _fails1 <= _fails0:
+            rects = swapped
+            notes.append("Master role goes to the largest bedroom "
+                         "(name swap keeps every door).")
     if buckets["foyer"] and buckets["living"]:
         # Rule 34: the foyer is the entry zone INSIDE the living
         # room - one space, never a dividing wall, stub or door.

@@ -6,6 +6,8 @@
 
 import streamlit as st
 
+import re
+
 from ai_program import format_ft_in, get_room_program
 from draw import svg_plan, svg_plot_preview
 from layout import _closest_road
@@ -62,12 +64,48 @@ def _rooms_for_table(rooms):
 
 def _option_summary(opt):
     """One-line demo summary: verdict, score, wishes, hard fails."""
-    verdict = "LIVABLE" if opt["livable"] else "UNLIVABLE"
+    verdict = "All key rules met" if opt["livable"] else "Needs review"
     wishes = opt.get("wishes", [])
     met = sum(1 for row in wishes if row["status"] == "MET")
     fails = ", ".join(opt["livability_fails"]) or "none"
     return "%s - score %.0f, wishes %d/%d, hard fails: %s." % (
         verdict, opt["score"], met, len(wishes), fails)
+
+
+_FRIENDLY_RULE = {
+    "4": "Kitchen door does not open into dining",
+    "5": "A bedroom door does not open into family living or dining",
+    "7": "A toilet is missing, misplaced, or has no door",
+    "13": "Kitchen has no exterior wall or veranda",
+    "14": "A bedroom has no window wall",
+    "15": "A toilet has no exterior wall",
+    "16": "Some rooms can only be reached through the kitchen, "
+           "a bedroom, or a toilet",
+    "G": "Rooms do not fit inside the plot",
+}
+
+
+def _friendly_issues(opt):
+    """One plain-language sentence per failed hard rule."""
+    by_id = {row["id"]: row for row in opt["rules"]}
+    sentences = []
+    for rule_id in opt["livability_fails"]:
+        detail = by_id.get(rule_id, {}).get("detail", "")
+        if rule_id == "19":
+            for part in detail.split("; "):
+                size = re.match(r"(.+?) \(\d+ sq ft\) not 10% over "
+                                r"(.+?) \(\d+ sq ft\)", part)
+                if size:
+                    sentences.append("Master bedroom is smaller than %s"
+                                     % size.group(2))
+                elif "smaller than another" in part:
+                    sentences.append("Master toilet is smaller than "
+                                     "another attached toilet")
+                elif part:
+                    sentences.append("Master bedroom rule needs review")
+        elif rule_id in _FRIENDLY_RULE:
+            sentences.append(_FRIENDLY_RULE[rule_id])
+    return sentences
 
 
 def _show_error(friendly, err):
@@ -242,8 +280,8 @@ if st.button("Generate room program"):
     tried = sum(opt["tried"] for opt in options)
     st.write(
         "Built %d option(s) (%d arrangements examined); scores rank them, "
-        "higher is better. UNLIVABLE means rules 4, 5, 7, 13-16, 19 or "
-        "geometry G fail."
+        "higher is better. 'Needs review' means a hard rule (4, 5, 7, "
+        "13-16, 19, or geometry G) missed - see under each option."
         % (len(options), tried)
     )
     columns = st.columns(len(options))
@@ -253,10 +291,11 @@ if st.button("Generate room program"):
             st.write(opt["title"])
             st.caption(_option_summary(opt))
             if opt["livable"]:
-                st.success("LIVABLE")
+                st.success("All key rules met")
             else:
-                st.error("UNLIVABLE (%s)"
-                         % ", ".join(opt["livability_fails"]))
+                st.warning("Needs review")
+                for sentence in _friendly_issues(opt):
+                    st.write(sentence)
             st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
             fails = [r["id"] for r in opt["rules"] if r["status"] == "FAIL"]
             bends = [r["id"] for r in opt["rules"] if r["status"] == "BEND"]

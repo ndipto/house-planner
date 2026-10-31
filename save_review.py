@@ -59,7 +59,7 @@ def main():
             lines.append("")
             continue
         for opt in result["options"]:
-            verdict = "LIVABLE" if opt["livable"] else "UNLIVABLE"
+            verdict = "OK" if opt["livable"] else "REVIEW"
             fname = "%s_%dx%d_%s_%s_%s.svg" % (
                 name, fw, fd, road, opt["label"], verdict)
             with open(os.path.join("review", fname), "w",

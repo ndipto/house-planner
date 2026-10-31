@@ -1,35 +1,35 @@
 House Planner review set (T1-T7).
 
 T1: frontage 40, depth 60, road North, wishes '-'
-  Option A LIVABLE   fails=[-] wishes=[-] -> T1_40x60_North_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[-] -> T1_40x60_North_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[-] -> T1_40x60_North_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[-] -> T1_40x60_North_A_OK.svg
+  Option B OK        fails=[-] wishes=[-] -> T1_40x60_North_B_OK.svg
+  Option C OK        fails=[-] wishes=[-] -> T1_40x60_North_C_OK.svg
 
 T2: frontage 45, depth 55, road South, wishes 'combined living and kitchen for family gathering, small garden beside the living room'
-  Option A LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_A_OK.svg
+  Option B OK        fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_B_OK.svg
+  Option C OK        fails=[-] wishes=[Glass partition: kitchen + living room: SKIPPED; Garden with the living room: MET] -> T2_45x55_South_C_OK.svg
 
 T3: frontage 40, depth 60, road East, wishes 'south facing master bedroom, nice living room'
-  Option A LIVABLE   fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_A_OK.svg
+  Option B OK        fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_B_OK.svg
+  Option C OK        fails=[-] wishes=[south-facing master bedroom: MET] -> T3_40x60_East_C_OK.svg
 
 T4: frontage 50, depth 40, road South, wishes 'open living and dining for family gathering. south facing master bedroom'
-  Option A LIVABLE   fails=[-] wishes=[Open plan: dining + living room: MET; south-facing master bedroom: MET] -> T4_50x40_South_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[Open plan: dining + living room: MET; south-facing master bedroom: MET] -> T4_50x40_South_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[Open plan: dining + living room: NOT MET; south-facing master bedroom: NOT MET] -> T4_50x40_South_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[Open plan: dining + living room: MET; south-facing master bedroom: MET] -> T4_50x40_South_A_OK.svg
+  Option B OK        fails=[-] wishes=[Open plan: dining + living room: MET; south-facing master bedroom: MET] -> T4_50x40_South_B_OK.svg
+  Option C OK        fails=[-] wishes=[Open plan: dining + living room: NOT MET; south-facing master bedroom: NOT MET] -> T4_50x40_South_C_OK.svg
 
 T5: frontage 30, depth 50, road North, wishes '-'
-  Option A LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[-] -> T5_30x50_North_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[-] -> T5_30x50_North_A_OK.svg
+  Option B OK        fails=[-] wishes=[-] -> T5_30x50_North_B_OK.svg
+  Option C OK        fails=[-] wishes=[-] -> T5_30x50_North_C_OK.svg
 
 T6: frontage 50, depth 70, road West, wishes 'garden, elderly parents need a bedroom near family living'
-  Option A LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_B_LIVABLE.svg
-  Option C LIVABLE   fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_A_OK.svg
+  Option B OK        fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_B_OK.svg
+  Option C OK        fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_OK.svg
 
 T7: frontage 70, depth 40, road East, wishes 'mom need big kitchen, but dad want a reading space in family living. i need my own space in my bedroom for gaming.'
-  Option A LIVABLE   fails=[-] wishes=[-] -> T7_70x40_East_A_LIVABLE.svg
-  Option B LIVABLE   fails=[-] wishes=[-] -> T7_70x40_East_B_LIVABLE.svg
+  Option A OK        fails=[-] wishes=[-] -> T7_70x40_East_A_OK.svg
+  Option B OK        fails=[-] wishes=[-] -> T7_70x40_East_B_OK.svg
