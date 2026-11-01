@@ -3,13 +3,15 @@
 Run: .venv\\Scripts\\python.exe save_review.py
 Writes review/T<n>_<frontage>x<depth>_<road>_<label>_<verdict>.svg
 (one file per built option) plus review/NOTES.txt with the verdict,
-hard-rule fails and wishes table behind each file. Re-run after
+hard-rule fails and wishes table behind each file. Also writes the
+T1-A and T7-A options as DXF samples under review/dxf/. Re-run after
 placer/drawing changes (TASK 2 re-saves with doors and windows).
 """
 
 import os
 
 from draw import svg_plan
+from dxf_export import dxf_plan
 from test_layout import (_program_4bed, _program_t7, PROGRAM_2BED,
                          PROGRAM_3BED, WISHES_T7)
 from typology import build_options
@@ -42,6 +44,17 @@ def _svg_for_option(plot, option):
                               "north_angle": plot.get("north_angle", 0)}})
 
 
+def _dxf_for_option(plot, option):
+    """Render one option exactly like the app's DXF download."""
+    return dxf_plan({"ok": True, "placements": option["placements"],
+                     "open_plan": option.get("open_plan", []),
+                     "glass_partitions": option.get("glass_partitions",
+                                                   []),
+                     "plot": {"w": plot["width"], "d": plot["depth"],
+                              "road": plot["road"],
+                              "north_angle": plot.get("north_angle", 0)}})
+
+
 def main():
     try:
         os.makedirs("review", exist_ok=True)
@@ -65,6 +78,18 @@ def main():
             with open(os.path.join("review", fname), "w",
                       encoding="utf-8") as handle:
                 handle.write(_svg_for_option(result["plot"], opt))
+            if name in ("T1", "T7") and opt["label"] == "A":
+                # DXF samples for CAD review (re-saved with the set).
+                dxf_name = "%s_%dx%d_%s_A.dxf" % (name, fw, fd, road)
+                try:
+                    os.makedirs("review/dxf", exist_ok=True)
+                except OSError as exc:
+                    print("cannot create review/dxf/: %s" % exc)
+                    continue
+                with open(os.path.join("review", "dxf", dxf_name), "w",
+                          encoding="ascii") as handle:
+                    handle.write(_dxf_for_option(result["plot"], opt))
+                lines.append("  Option A DXF sample -> dxf/%s" % dxf_name)
             fails = ", ".join(opt["livability_fails"]) or "-"
             wishes_txt = "; ".join("%s: %s" % (w["wish"], w["status"])
                                    for w in opt["wishes"]) or "-"

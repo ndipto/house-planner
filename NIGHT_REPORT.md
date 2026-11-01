@@ -828,3 +828,29 @@ ASCII-only). Full suite: layout 34/36 (same 2 stuck fails),
 render 3/3, voice 3/3, plan-render 16/16. Total 61/63.
 App bare-runs clean; no server smoke (standing rule).
 
+## DXF inches + colors + new layers (Nov 1; committed, not pushed)
+
+Three upgrades to the DXF download, all in dxf_export.py:
+units are inches now ($INSUNITS = 1, every coordinate x12
+inside the entity writers, so dims read correctly under
+AutoCAD architectural units); every layer has its own color
+(WALLS white, DOORS yellow, WINDOWS cyan, GLASS blue, TEXT
+green, DIMS red, SETBACK magenta dashed, PLOT/ROAD gray,
+NORTH white, VERANDA orange, LANDSCAPE light green); two new
+layers (VERANDA = porch + veranda outlines incl. the jali
+line, LANDSCAPE = dashed garden + court outlines - courts
+are type "garden", so one rule covers both). No wall hatch:
+the HATCH entity does not exist in DXF R12 (R13+ only), so
+per the brief it is skipped, not faked - walls stay clean
+outlines and there is no WALL-HATCH layer.
+save_review.py now also writes review/dxf/T1_40x60_North_A.dxf
++ review/dxf/T7_70x40_East_A.dxf (re-saved with the set;
+SVGs byte-identical, NOTES.txt gains the two lines).
+
+Tests: test_dxf.py 7/7 (new: exact 13-layer color table +
+no-HATCH pins; VERANDA porch corners + LANDSCAPE dashed
+garden corners; arc radii + plot corners + road offsets in
+inches; WALLS holds only wall bands now). Full suite:
+layout 34/36 (same 2 stuck fails), render 3/3, voice 3/3,
+plan-render 16/16. Total 63/65.
+

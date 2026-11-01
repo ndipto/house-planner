@@ -32,6 +32,20 @@ PROGRAM_1BED = [
     _room("Common Toilet", "bathroom", 7, 8, kind="common"),
 ]
 
+PROGRAM_2BED = [
+    _room("Porch", "porch", 8, 5),
+    _room("Foyer", "foyer", 8, 10),
+    _room("Living Room", "living room", 13, 14),
+    _room("Dining", "dining", 11, 13),
+    _room("Kitchen", "kitchen", 10, 13, veranda=True),
+    _room("Family Living", "family living", 13, 14),
+    _room("Bedroom 1", "bedroom", 13, 14, veranda=True),
+    _room("Bedroom 2", "bedroom", 12, 13, veranda=True),
+    _room("Common Toilet", "bathroom", 7, 8, kind="common"),
+    _room("Bath 1", "bathroom", 7, 8, kind="attached",
+          attached="Bedroom 1"),
+]
+
 
 def _dxf_and_option(road="South", angle=0.0):
     """(dxf string, option) for the 1-bed brief on a 40x60 plot."""
@@ -68,21 +82,44 @@ def _entities(dxf):
     return found
 
 
+def _layers(dxf):
+    """Parse the TABLES LAYER entries into {name: (color, linetype)}."""
+    lines = dxf.split("\n")
+    found = {}
+    i = 0
+    while i < len(lines) - 5:
+        if lines[i] == "0" and lines[i + 1] == "LAYER" \
+                and lines[i + 2] == "2":
+            color, ltype, j = None, None, i + 4
+            while j < len(lines) - 1 and lines[j] != "0":
+                if lines[j] == "62":
+                    color = lines[j + 1]
+                if lines[j] == "6":
+                    ltype = lines[j + 1]
+                j += 2
+            found[lines[i + 3]] = (color, ltype)
+        i += 1
+    return found
+
+
 def test_dxf_envelope():
     dxf, _opt = _dxf_and_option()
     lines = dxf.split("\n")
     assert lines[0] == "999", "file opens with a comment"
-    assert lines[1:5] == ["House Planner concept plan - units: feet",
+    assert lines[1:5] == ["House Planner concept plan - units: inches",
                           "0", "SECTION", "2"], "header section opens"
     assert dxf.endswith("0\nENDSEC\n0\nEOF\n"), "file ends with EOF"
     for section in ("HEADER", "TABLES", "ENTITIES"):
         assert "\n2\n%s\n" % section in dxf, section + " present"
-    assert "9\n$INSUNITS\n70\n2\n" in dxf, "units are feet"
+    assert "9\n$INSUNITS\n70\n1\n" in dxf, "units are inches"
     assert "1\nAC1009\n" in dxf, "DXF R12 version tag"
-    for layer in ("WALLS", "DOORS", "WINDOWS", "GLASS", "TEXT",
-                  "DIMS", "PLOT", "SETBACK", "ROAD", "NORTH"):
+    for layer in ("WALLS", "DOORS", "WINDOWS", "GLASS", "VERANDA",
+                  "LANDSCAPE", "TEXT", "DIMS", "PLOT", "SETBACK",
+                  "ROAD", "NORTH"):
         assert "0\nLAYER\n2\n%s\n" % layer in dxf, layer + " defined"
     assert "0\nLTYPE\n2\nDASHED\n" in dxf, "dashed linetype defined"
+    assert "0\nHATCH\n" not in dxf, "no HATCH entity (not R12)"
+    assert "2\nWALL-HATCH\n" not in dxf, "no WALL-HATCH layer"
     entities = _entities(dxf)
     kinds = {e["type"] for e in entities}
     assert kinds <= {"LINE", "ARC", "CIRCLE", "TEXT"}, \
@@ -93,6 +130,21 @@ def test_dxf_envelope():
         assert "1" in text["codes"] and "40" in text["codes"], \
             "every TEXT has a string and a height"
     print("PASS test_dxf_envelope (%d entities)" % len(entities))
+
+
+def test_dxf_layer_colors():
+    dxf, _opt = _dxf_and_option()
+    expected = {"0": ("7", "CONTINUOUS"), "PLOT": ("8", "CONTINUOUS"),
+                "SETBACK": ("6", "DASHED"), "ROAD": ("8", "CONTINUOUS"),
+                "WALLS": ("7", "CONTINUOUS"), "DOORS": ("2", "CONTINUOUS"),
+                "WINDOWS": ("4", "CONTINUOUS"),
+                "GLASS": ("5", "CONTINUOUS"),
+                "VERANDA": ("30", "CONTINUOUS"),
+                "LANDSCAPE": ("94", "CONTINUOUS"),
+                "TEXT": ("3", "CONTINUOUS"), "DIMS": ("1", "CONTINUOUS"),
+                "NORTH": ("7", "CONTINUOUS")}
+    assert _layers(dxf) == expected, "each layer keeps its color"
+    print("PASS test_dxf_layer_colors (13 layers)")
 
 
 def test_dxf_rooms_labeled():
@@ -120,9 +172,10 @@ def test_dxf_openings_match():
     arcs = [e for e in entities if e["type"] == "ARC"]
     assert len(arcs) == len(placed["doors"]), \
         "one swing arc per door (%d)" % len(placed["doors"])
-    for arc in arcs:
+    for arc, door in zip(arcs, placed["doors"]):
         radius = float(arc["codes"]["40"])
-        assert radius > 0, "positive arc radius"
+        assert abs(radius - door["width"] * 12.0) < 0.01, \
+            "arc radius in inches (%.1f)" % radius
         start = float(arc["codes"]["50"])
         end = float(arc["codes"]["51"])
         assert 0.0 <= start < 360.0 and 0.0 <= end < 360.0, \
@@ -142,10 +195,70 @@ def test_dxf_openings_match():
     wall_rects = sum(1 for s in segments if s["kind"] != "glass")
     wall_lines = [e for e in entities if e["type"] == "LINE"
                   and e["codes"].get("8") == "WALLS"]
-    assert len(wall_lines) >= 4 * wall_rects, \
-        "wall band outlines present (%d bands)" % wall_rects
+    assert len(wall_lines) == 4 * wall_rects, \
+        "WALLS holds only wall bands (%d)" % wall_rects
+    # South road = identity: local feet x12 land on exact inches.
+    wall_pts = set()
+    for line in wall_lines:
+        wall_pts.add((line["codes"]["10"], line["codes"]["20"]))
+        wall_pts.add((line["codes"]["11"], line["codes"]["21"]))
+    for seg in segments:
+        if seg["kind"] == "glass":
+            continue
+        for corner in ((seg["x0"], seg["y0"]), (seg["x1"], seg["y1"])):
+            key = ("%g" % (corner[0] * 12), "%g" % (corner[1] * 12))
+            assert key in wall_pts, "wall corner %s in inches" % (key,)
     print("PASS test_dxf_openings_match (%d doors, %d windows)"
           % (len(placed["doors"]), len(placed["windows"])))
+
+
+def test_dxf_veranda_landscape():
+    dxf, opt = _dxf_and_option()
+    entities = _entities(dxf)
+    veranda_pts = set()
+    for line in [e for e in entities if e["type"] == "LINE"
+                 and e["codes"].get("8") == "VERANDA"]:
+        veranda_pts.add((line["codes"]["10"], line["codes"]["20"]))
+        veranda_pts.add((line["codes"]["11"], line["codes"]["21"]))
+    porches = [r for r in opt["placements"]
+               if r.get("type") in ("porch", "veranda")]
+    assert porches, "option has a porch/veranda"
+    for room in porches:
+        for corner in ((room["x"], room["y"]),
+                       (room["x"] + room["w"], room["y"] + room["d"])):
+            key = ("%g" % (corner[0] * 12), "%g" % (corner[1] * 12))
+            assert key in veranda_pts, \
+                "%s outline on VERANDA" % room["name"]
+    # A wished garden lands on LANDSCAPE, dashed.
+    garden = build_options(PROGRAM_2BED, 45, 55, "South", 2,
+                           "small garden with the living room")
+    assert garden["options"], "garden brief must build"
+    first = garden["options"][0]
+    gdxf = dxf_plan({"ok": True, "placements": first["placements"],
+                     "open_plan": first.get("open_plan", []),
+                     "glass_partitions": first.get("glass_partitions",
+                                                   []),
+                     "plot": {"w": 45, "d": 55, "road": "south",
+                              "north_angle": 0.0}})
+    gardens = [r for r in first["placements"]
+               if r.get("type") == "garden"]
+    assert gardens, "wished garden is placed"
+    land = [e for e in _entities(gdxf) if e["type"] == "LINE"
+            and e["codes"].get("8") == "LANDSCAPE"]
+    assert land, "LANDSCAPE outlines drawn"
+    assert all(line["codes"].get("6") == "DASHED" for line in land), \
+        "garden outlines dashed"
+    land_pts = set()
+    for line in land:
+        land_pts.add((line["codes"]["10"], line["codes"]["20"]))
+        land_pts.add((line["codes"]["11"], line["codes"]["21"]))
+    for room in gardens:
+        for corner in ((room["x"], room["y"]),
+                       (room["x"] + room["w"], room["y"] + room["d"])):
+            key = ("%g" % (corner[0] * 12), "%g" % (corner[1] * 12))
+            assert key in land_pts, "garden outline on LANDSCAPE"
+    print("PASS test_dxf_veranda_landscape (%d porch/veranda, %d garden)"
+          % (len(porches), len(gardens)))
 
 
 def test_dxf_road_sides():
@@ -159,12 +272,21 @@ def test_dxf_road_sides():
         y = float(roads[0]["codes"]["20"])
         if road == "South":
             assert y < 0, "road below the plan"
+            assert y == -3.6 * 12, "road offset in inches"
         elif road == "North":
-            assert y > draw_d, "road above the plan"
+            assert y > draw_d * 12, "road above the plan"
         elif road == "East":
-            assert x > draw_w, "road right of the plan"
+            assert x > draw_w * 12, "road right of the plan"
         else:
             assert x < 0, "road left of the plan"
+        # Plot boundary spans the full size in inches.
+        ends = set()
+        for line in [e for e in _entities(dxf) if e["type"] == "LINE"
+                     and e["codes"].get("8") == "PLOT"]:
+            ends.add((line["codes"]["10"], line["codes"]["20"]))
+            ends.add((line["codes"]["11"], line["codes"]["21"]))
+        assert ("%g" % (draw_w * 12), "%g" % (draw_d * 12)) in ends, \
+            "plot corner in inches on %s" % road
     print("PASS test_dxf_road_sides (S/N/E/W)")
 
 
@@ -194,11 +316,13 @@ def test_dxf_ascii_and_empty():
 
 def main():
     test_dxf_envelope()
+    test_dxf_layer_colors()
     test_dxf_rooms_labeled()
     test_dxf_openings_match()
+    test_dxf_veranda_landscape()
     test_dxf_road_sides()
     test_dxf_ascii_and_empty()
-    print("5/5 dxf tests pass.")
+    print("7/7 dxf tests pass.")
 
 
 if __name__ == "__main__":

@@ -7,16 +7,24 @@
 # door/window gaps (the same openings.py placement the SVG draws and
 # layout.py checks, so the two drawings cannot disagree), door leafs +
 # swing arcs, windows, glass partitions, overall dimensions, north arrow
-# and ROAD label. Units are feet ($INSUNITS = 2), y-up, the road on its
-# real side - the DXF matches the on-screen plan orientation. Only LINE,
-# ARC, CIRCLE and TEXT entities are used, so every CAD reader (AutoCAD,
-# LibreCAD, DWG TrueView, ...) opens it. No third-party package is
-# needed, so the Streamlit Cloud deploy is unaffected.
+# and ROAD label. One drawing unit is one inch ($INSUNITS = 1), y-up,
+# the road on its real side - the DXF matches the on-screen plan
+# orientation, and dimensions read correctly under AutoCAD's
+# architectural units. Only LINE, ARC, CIRCLE and TEXT entities are
+# used, so every CAD reader (AutoCAD, LibreCAD, DWG TrueView, ...)
+# opens it. No third-party package is needed, so the Streamlit Cloud
+# deploy is unaffected. All geometry is computed in feet (like the
+# placer) and converted to inches once, inside the entity writers.
 #
-# Layers: PLOT, SETBACK (dashed), ROAD, WALLS, DOORS, WINDOWS, GLASS,
-# TEXT, DIMS, NORTH. DXF R12 text is ASCII-only, so non-ASCII room
-# features (e.g. Bengali wishes) render as "?" - names, sizes and areas
-# always come from our own ASCII code.
+# Layers (each with its own color): PLOT gray, SETBACK magenta dashed,
+# ROAD gray, WALLS white, DOORS yellow, WINDOWS cyan, GLASS blue,
+# VERANDA orange (porch + veranda outlines), LANDSCAPE light green
+# (garden + court outlines, dashed), TEXT green, DIMS red, NORTH white.
+# There is deliberately no wall hatch: the HATCH entity does not exist
+# in DXF R12 (it arrived with R13), so walls stay clean outlines.
+# DXF R12 text is ASCII-only, so non-ASCII room features (e.g. Bengali
+# wishes) render as "?" - names, sizes and areas always come from our
+# own ASCII code.
 #
 # Orientation: same road rotation as draw.svg_plan (closest cardinal for
 # angled plots); the north arrow turns with the residual angle.
@@ -43,6 +51,11 @@ def _num(value):
     return text
 
 
+def _inch(feet):
+    """Feet (placer units) -> drawing units (inches)."""
+    return float(feet) * 12.0
+
+
 def _clean(text):
     """DXF R12 text: one line, ASCII-only, literal % escaped."""
     out = str(text).replace("\r", " ").replace("\n", " ")
@@ -51,12 +64,12 @@ def _clean(text):
 
 
 def _line(layer, x0, y0, x1, y1, ltype=None):
-    """One LINE entity on a layer (feet, y-up)."""
+    """One LINE entity on a layer (takes feet, writes inches)."""
     out = ["0", "LINE", "8", layer]
     if ltype:
         out += ["6", ltype]
-    out += ["10", _num(x0), "20", _num(y0), "30", "0.0",
-            "11", _num(x1), "21", _num(y1), "31", "0.0"]
+    out += ["10", _num(_inch(x0)), "20", _num(_inch(y0)), "30", "0.0",
+            "11", _num(_inch(x1)), "21", _num(_inch(y1)), "31", "0.0"]
     return "\n".join(out)
 
 
@@ -73,33 +86,34 @@ def _rect(layer, x0, y0, x1, y1, ltype=None):
 
 
 def _arc(layer, cx, cy, radius, start_deg, end_deg):
-    """One ARC entity (angles in degrees, counter-clockwise)."""
+    """One ARC entity (takes feet, writes inches; CCW degrees)."""
     return "\n".join([
         "0", "ARC", "8", layer,
-        "10", _num(cx), "20", _num(cy), "30", "0.0",
-        "40", _num(radius),
+        "10", _num(_inch(cx)), "20", _num(_inch(cy)), "30", "0.0",
+        "40", _num(_inch(radius)),
         "50", _num(start_deg % 360.0), "51", _num(end_deg % 360.0),
     ])
 
 
 def _circle(layer, cx, cy, radius):
-    """One CIRCLE entity."""
+    """One CIRCLE entity (takes feet, writes inches)."""
     return "\n".join([
         "0", "CIRCLE", "8", layer,
-        "10", _num(cx), "20", _num(cy), "30", "0.0",
-        "40", _num(radius),
+        "10", _num(_inch(cx)), "20", _num(_inch(cy)), "30", "0.0",
+        "40", _num(_inch(radius)),
     ])
 
 
 def _text(layer, x, y, height, string, rotation=0.0, centered=True):
-    """One TEXT entity (centered by default, like the SVG labels)."""
+    """One TEXT entity (takes feet, writes inches; centered by default)."""
     out = ["0", "TEXT", "8", layer,
-           "10", _num(x), "20", _num(y), "30", "0.0",
-           "40", _num(height), "1", _clean(string)]
+           "10", _num(_inch(x)), "20", _num(_inch(y)), "30", "0.0",
+           "40", _num(_inch(height)), "1", _clean(string)]
     if abs(rotation) > 0.001:
         out += ["50", _num(rotation % 360.0)]
     if centered:
-        out += ["72", "1", "11", _num(x), "21", _num(y), "31", "0.0"]
+        out += ["72", "1", "11", _num(_inch(x)), "21", _num(_inch(y)),
+                "31", "0.0"]
     return "\n".join(out)
 
 
@@ -128,11 +142,12 @@ def dxf_plan(result):
     draw_d = plot_d if road in ("north", "south") else plot_w
 
     def point(x, y):
-        """Local plot coords -> DXF coords (feet, y-up, road on its side).
+        """Local plot coords -> drawing coords (feet, y-up, road on side).
 
         Same orientation as the SVG plan: the road edge (local y = 0)
         lands at the bottom (south), top (north), right (east) or left
-        (west) of the drawn rectangle.
+        (west) of the drawn rectangle. The entity writers convert
+        these feet to inches ($INSUNITS = 1).
         """
         if road == "south":
             return x, y
@@ -170,16 +185,19 @@ def dxf_plan(result):
     for room in rooms:
         ax, ay = point(room["x"], room["y"])
         bx, by = point(room["x"] + room["w"], room["y"] + room["d"])
-        if str(room.get("type", "")) in UNWALLED_TYPES:
-            dash = "DASHED" if str(room.get("type", "")) == "garden" \
-                else None
-            ent.append(_rect("WALLS", ax, ay, bx, by, dash))
+        room_type = str(room.get("type", ""))
+        if room_type in UNWALLED_TYPES:
+            if room_type == "garden":
+                # Gardens + courts (courts are type "garden").
+                ent.append(_rect("LANDSCAPE", ax, ay, bx, by, "DASHED"))
+            else:  # porch, veranda
+                ent.append(_rect("VERANDA", ax, ay, bx, by))
         ent.append(_room_text(room, point))
         if room.get("screened_jali"):
             # Jali/screen wall: a line just outside the road edge.
             jx0, jy0 = point(room["x"], room["y"] - 0.3)
             jx1, jy1 = point(room["x"] + room["w"], room["y"] - 0.3)
-            ent.append(_line("WALLS", jx0, jy0, jx1, jy1))
+            ent.append(_line("VERANDA", jx0, jy0, jx1, jy1))
 
     # Walls (same placement the SVG draws), doors, windows.
     glass = result.get("glass_partitions", [])
@@ -392,12 +410,20 @@ def _north_dxf(x, y, residual):
 
 def _assemble(entities):
     """HEADER + TABLES (linetypes, layers) + ENTITIES + EOF."""
-    layers = ["0", "PLOT", "SETBACK", "ROAD", "WALLS", "DOORS",
-              "WINDOWS", "GLASS", "TEXT", "DIMS", "NORTH"]
-    parts = ["999", "House Planner concept plan - units: feet",
+    # (name, ACI color, linetype): 1 red, 2 yellow, 3 green, 4 cyan,
+    # 5 blue, 6 magenta, 7 white, 8 gray, 30 orange, 94 light green.
+    layers = [("0", 7, "CONTINUOUS"), ("PLOT", 8, "CONTINUOUS"),
+              ("SETBACK", 6, "DASHED"), ("ROAD", 8, "CONTINUOUS"),
+              ("WALLS", 7, "CONTINUOUS"), ("DOORS", 2, "CONTINUOUS"),
+              ("WINDOWS", 4, "CONTINUOUS"), ("GLASS", 5, "CONTINUOUS"),
+              ("VERANDA", 30, "CONTINUOUS"),
+              ("LANDSCAPE", 94, "CONTINUOUS"),
+              ("TEXT", 3, "CONTINUOUS"), ("DIMS", 1, "CONTINUOUS"),
+              ("NORTH", 7, "CONTINUOUS")]
+    parts = ["999", "House Planner concept plan - units: inches",
              "0", "SECTION", "2", "HEADER",
              "9", "$ACADVER", "1", "AC1009",
-             "9", "$INSUNITS", "70", "2",
+             "9", "$INSUNITS", "70", "1",
              "9", "$LTSCALE", "40", "1.0",
              "9", "$DWGCODEPAGE", "3", "ANSI_1252",
              "0", "ENDSEC",
@@ -410,9 +436,8 @@ def _assemble(entities):
              "40", "1.0", "49", "0.6", "49", "-0.4",
              "0", "ENDTAB",
              "0", "TABLE", "2", "LAYER", "70", str(len(layers))]
-    for name in layers:
-        ltype = "DASHED" if name == "SETBACK" else "CONTINUOUS"
-        parts += ["0", "LAYER", "2", name, "70", "0", "62", "7",
+    for name, color, ltype in layers:
+        parts += ["0", "LAYER", "2", name, "70", "0", "62", str(color),
                   "6", ltype]
     parts += ["0", "ENDTAB", "0", "ENDSEC",
               "0", "SECTION", "2", "ENTITIES"]

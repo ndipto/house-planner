@@ -1,6 +1,7 @@
 House Planner review set (T1-T7).
 
 T1: frontage 40, depth 60, road North, wishes '-'
+  Option A DXF sample -> dxf/T1_40x60_North_A.dxf
   Option A OK        fails=[-] wishes=[-] -> T1_40x60_North_A_OK.svg
   Option B OK        fails=[-] wishes=[-] -> T1_40x60_North_B_OK.svg
   Option C OK        fails=[-] wishes=[-] -> T1_40x60_North_C_OK.svg
@@ -31,5 +32,6 @@ T6: frontage 50, depth 70, road West, wishes 'garden, elderly parents need a bed
   Option C OK        fails=[-] wishes=[Bedroom near family living: MET; Garden with the living room: MET] -> T6_50x70_West_C_OK.svg
 
 T7: frontage 70, depth 40, road East, wishes 'mom need big kitchen, but dad want a reading space in family living. i need my own space in my bedroom for gaming.'
+  Option A DXF sample -> dxf/T7_70x40_East_A.dxf
   Option A OK        fails=[-] wishes=[-] -> T7_70x40_East_A_OK.svg
   Option B OK        fails=[-] wishes=[-] -> T7_70x40_East_B_OK.svg
