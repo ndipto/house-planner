@@ -1012,6 +1012,14 @@ def _slot_options(kind, room, strip_w, bath_info=None,
     return options
 
 
+# Search budget for one side stack: above this many depth combos the
+# stacker evaluates a deterministic strided sample instead of the full
+# product (stress grid Nov 1: narrow 4-bed sides reach 10^9 combos and
+# never finish; the whole committed suite peaks at 367,416 combos, so
+# this cap never touches it and existing plans stay byte-identical).
+STACK_SEARCH_CAP = 500000
+
+
 def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
                 outer_east=False, min_bottom=0.0, depth_bounds=None,
                 stack_top=None):
@@ -1047,7 +1055,18 @@ def _stack_side(slots, strip_x0, strip_w, build_d, spans, notes,
         tried *= len(options)
     top0 = build_d if stack_top is None else stack_top
     best = None
-    for combo in itertools.product(*option_lists):
+    combos = itertools.product(*option_lists)
+    if tried > STACK_SEARCH_CAP:
+        # Too many combos to try them all: stride the product so
+        # the search always ends (deterministic: same brief, same
+        # plan).
+        stride = max(1, tried // STACK_SEARCH_CAP)
+        combos = itertools.islice(combos, 0, None, stride)
+        note = "Side search sampled 1 in %d (too many combos)."
+        note = note % stride
+        if note not in notes:
+            notes.append(note)
+    for combo in combos:
         heights = sum(combo)
         bottom = top0 - heights
         if bottom < min_bottom - EPS:

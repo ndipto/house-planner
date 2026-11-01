@@ -63,11 +63,11 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (65 automated tests, no key needed; 63 green,
+Run the checks (67 automated tests, no key needed; 65 green,
 2 known-stuck placer fails documented in NIGHT_REPORT.md):
 
 ```bash
-python test_layout.py         # 36 placer/checker/drawing tests (T1-T8 included)
+python test_layout.py         # 38 placer/checker/drawing tests (T1-T8 + stress pair included)
 python test_render.py         # 3 mocked Muse Image tests
 python test_voice.py          # 3 mocked Muse Voice tests
 python test_plan_render.py    # 16 mocked render tests (faithful auto-check + shape/crop/extra)

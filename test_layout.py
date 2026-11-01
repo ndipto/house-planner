@@ -1394,6 +1394,55 @@ def test_kitchen_veranda_variants():
     print("PASS test_kitchen_veranda_variants (jali / side / window)")
 
 
+def test_stack_search_cap_sampled():
+    """Huge side searches stride instead of hanging (stress grid Nov 1).
+
+    With the cap forced tiny, even a small brief strides and reports
+    it; without the fix there is no note and this fails (fast).
+    """
+    import typology
+    old_cap = typology.STACK_SEARCH_CAP
+    typology.STACK_SEARCH_CAP = 100
+    try:
+        result = build_options(PROGRAM_1BED, 40, 60, "South", 1)
+    finally:
+        typology.STACK_SEARCH_CAP = old_cap
+    assert result["options"], "1-bed 40x60 South must build"
+    assert any("sampled 1 in" in note
+               for opt in result["options"] for note in opt["notes"]), \
+        "the stride note is reported"
+    print("PASS test_stack_search_cap_sampled")
+
+
+def test_stress_narrow_4bed_terminates():
+    """25x50 North 4-bed used to hang forever (10^9 side combos)."""
+    program = [
+        _room("Porch", "porch", 8, 5),
+        _room("Foyer", "foyer", 8, 10),
+        _room("Living Room", "living room", 13, 14),
+        _room("Dining", "dining", 11, 13),
+        _room("Kitchen", "kitchen", 10, 13, veranda=True),
+        _room("Family Living", "family living", 13, 14),
+        _room("Bedroom 1", "bedroom", 13, 14, veranda=True),
+        _room("Bedroom 2", "bedroom", 12, 13, veranda=True),
+        _room("Bedroom 3", "bedroom", 11, 12),
+        _room("Bedroom 4", "bedroom", 10, 11),
+        _room("Common Toilet", "bathroom", 7, 8, kind="common"),
+        _room("Bath 1", "bathroom", 7, 8, kind="attached",
+              attached="Bedroom 1"),
+        _room("Bath 2", "bathroom", 7, 8, kind="attached",
+              attached="Bedroom 2"),
+        _room("Bath 3", "bathroom", 7, 8, kind="attached",
+              attached="Bedroom 3"),
+    ]
+    result = build_options(program, 25, 50, "North", 4, "")
+    assert "options" in result, "the brief returns, never hangs"
+    for opt in result["options"]:
+        assert opt["placements"], "built options place rooms"
+    print("PASS test_stress_narrow_4bed_terminates (%d options)"
+          % len(result["options"]))
+
+
 if __name__ == "__main__":
     test_typology_options()
     test_fit_wishes_45x55()
@@ -1431,4 +1480,6 @@ if __name__ == "__main__":
     test_architect_round1()
     test_svg_dimensions_rotated()
     test_kitchen_veranda_variants()
+    test_stack_search_cap_sampled()
+    test_stress_narrow_4bed_terminates()
     print("ALL LAYOUT TESTS PASSED")

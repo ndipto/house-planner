@@ -854,3 +854,80 @@ inches; WALLS holds only wall bands now). Full suite:
 layout 34/36 (same 2 stuck fails), render 3/3, voice 3/3,
 plan-render 16/16. Total 63/65.
 
+## Stress test across plot sizes (Nov 1-2; committed, not pushed)
+
+New stress_grid.py: 560 rule-based briefs (no AI, no key) -
+frontages 25/30/35/40/50/60/70 x depths 35/40/50/60/80 x
+roads N/E/S/W x 1-4 beds (toilets = beds) - each through
+the exact app path (build_options + SVG + DXF + card
+helpers). 560 briefs in ~35 min, 216 no-fit (friendly
+message), 0 exception crashes.
+
+ONE defect found, fixed: narrow 4-bed briefs hung forever.
+_stack_side enumerated the full Cartesian product of side
+depths (25x50 North 4-bed: 1,071,385,056 combos; even the
+3-bed took 18 s at 19.8M). Fix (typology.py): STACK_SEARCH_CAP
+= 500,000 - bigger searches run a deterministic strided
+sample and note it ("sampled 1 in N"). The whole committed
+suite peaks at 367,416 combos (T5), so the cap provably
+never touches existing plans - verified by re-saving
+review/ (all SVGs + DXFs byte-identical). The 4-bed narrow
+case now finishes in ~38 s with honestly-checked options
+(usually amber). No fitting was forced: amber/no-fit stays
+as the checker verdicts it.
+
+Regression tests (test_layout.py): test_stack_search_cap_sampled
+(fast: forced-tiny cap strides and reports) +
+test_stress_narrow_4bed_terminates (the true 25x50 North
+4-bed hang case, ~38 s). Full suite: layout 36/38 (same 2
+stuck fails), render 3/3, voice 3/3, plan-render 16/16,
+dxf 7/7. Total 65/67.
+
+COVERAGE (plot size x bedrooms, 4 roads each: options
+built / "All key rules met"; max 12/12):
+
+```
+plot      1-bed    2-bed    3-bed    4-bed
+25x35       0/0      0/0      0/0      0/0
+25x40       0/0      0/0      0/0      0/0
+25x50      12/12    12/4     12/0     12/0
+25x60      12/12    12/0     12/0     12/0
+25x80      12/0     12/0     12/0     12/0
+30x35       0/0      0/0      0/0      0/0
+30x40       0/0      0/0      0/0      0/0
+30x50      12/12    12/12    12/0     12/0
+30x60      12/12    12/0     12/0     12/0
+30x80      12/0     12/0     12/0     12/0
+35x35       0/0      0/0      0/0      0/0
+35x40       0/0      0/0      0/0      0/0
+35x50      12/12    12/12    12/12     0/0
+35x60      12/12    12/12    12/12    12/0
+35x80      12/0     12/12    12/12    12/0
+40x35       0/0      0/0      0/0      0/0
+40x40       0/0      0/0      0/0      0/0
+40x50      12/12    12/12    12/12     0/0
+40x60      12/12    12/12    12/12    12/0
+40x80      12/0     12/12    12/12    12/0
+50x35       0/0      0/0      0/0      0/0
+50x40      12/12    12/12     0/0      0/0
+50x50      12/12    12/12    12/12     0/0
+50x60      12/12    12/8     12/12    12/0
+50x80      12/4     12/8     12/8     12/12
+60x35       0/0      0/0      0/0      0/0
+60x40       4/4     12/12     0/0      0/0
+60x50      12/12    12/12    12/12     0/0
+60x60      12/12    12/8     12/12    12/0
+60x80      12/4     12/8     12/8     12/12
+70x35       0/0      0/0      0/0      0/0
+70x40       4/4      8/8      8/8      0/0
+70x50      12/12    12/12    12/12     0/0
+70x60      12/12    12/8     12/12    12/0
+70x80      12/4     12/8     12/8     12/12
+```
+
+Reading it: shallow plots (35-40 deep) mostly no-fit; narrow
+4-beds build but need review; 1-2 beds go green almost
+everywhere they fit; wide+deep (50-70 x 60-80) builds
+everything with mixed verdicts. Per the brief, no case was
+forced to fit - this table is the honest baseline.
+
