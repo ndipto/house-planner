@@ -63,7 +63,7 @@ cp .env.example .env        # then put your key in .env (never committed)
 streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (58 automated tests, no key needed; 56 green,
+Run the checks (63 automated tests, no key needed; 61 green,
 2 known-stuck placer fails documented in NIGHT_REPORT.md):
 
 ```bash
@@ -71,6 +71,7 @@ python test_layout.py         # 36 placer/checker/drawing tests (T1-T8 included)
 python test_render.py         # 3 mocked Muse Image tests
 python test_voice.py          # 3 mocked Muse Voice tests
 python test_plan_render.py    # 16 mocked render tests (faithful auto-check + shape/crop/extra)
+python test_dxf.py            # 5 DXF export tests (structure, labels, openings, roads, ASCII)
 ```
 
 Re-save the review set after placer/drawing changes:

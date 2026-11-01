@@ -797,3 +797,34 @@ appended, tight crop fills the frame on T1-A + WIDE-A).
 Full suite: layout 34/36 (same 2 stuck fails),
 render 3/3, voice 3/3. Total 56/58.
 
+## DXF download button (Nov 1; committed, not pushed)
+
+Every option card now has a "Download DXF" button under its
+plan (both branches: beside the render pair and under the
+solo plan). New dxf_export.py, stdlib-only like draw.py:
+dxf_plan() takes the same dict as svg_plan() and reads the
+same place_openings()/wall_segments() data, so the DXF and
+the SVG can never disagree. Output is minimal DXF R12
+(LINE/ARC/CIRCLE/TEXT only): plot boundary, dashed setback,
+wall-band outlines with real door/window gaps, door leafs +
+quarter-circle swing arcs, windows, glass partitions, room
+names + sizes + areas (+ features), overall dims, north
+arrow, ROAD label, title lines. Units feet ($INSUNITS=2),
+road on its real side, matching the on-screen orientation.
+Non-ASCII features render as "?" (R12 is ASCII-only).
+No new dependency: requirements.txt untouched, Cloud-safe.
+
+Independent proof: the file was read back with ezdxf
+(installed, then uninstalled - not a project dependency):
+audit 0 errors, $INSUNITS=2, and all 54 wall-band corners
+of the 1-bed sample land on exact coordinates. A sample
+download (house_plan_option_A.dxf, ~21 KB) was left in the
+owner's temp folder for an AutoCAD open-check.
+
+Tests: test_dxf.py 5/5 (envelope + layers + entity kinds,
+every room labeled, arcs == doors / window lines == 2x /
+glass lines == 2x, ROAD on the real side x4, empty plan +
+ASCII-only). Full suite: layout 34/36 (same 2 stuck fails),
+render 3/3, voice 3/3, plan-render 16/16. Total 61/63.
+App bare-runs clean; no server smoke (standing rule).
+

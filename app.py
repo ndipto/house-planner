@@ -10,6 +10,7 @@ import re
 
 from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
+from dxf_export import dxf_plan
 from layout import _closest_road
 from plan_render import render_plan_checked
 from typology import build_options
@@ -49,6 +50,17 @@ def _render_option_plan(plot, option, extra=""):
 def _svg_for_option(plot, option):
     """Render one typology option via svg_plan (adapts the plan shape)."""
     return svg_plan({"ok": True, "placements": option["placements"],
+                     "open_plan": option.get("open_plan", []),
+                     "glass_partitions": option.get("glass_partitions",
+                                                   []),
+                     "plot": {"w": plot["width"], "d": plot["depth"],
+                              "road": plot["road"],
+                              "north_angle": plot.get("north_angle", 0)}})
+
+
+def _dxf_for_option(plot, option):
+    """Render one typology option via dxf_plan (same adapted shape)."""
+    return dxf_plan({"ok": True, "placements": option["placements"],
                      "open_plan": option.get("open_plan", []),
                      "glass_partitions": option.get("glass_partitions",
                                                    []),
@@ -584,6 +596,13 @@ if _has_results(st.session_state):
                     st.markdown(_svg_for_option(plot, opt),
                                 unsafe_allow_html=True)
                     st.caption("Your plan")
+                    st.download_button(
+                        "Download DXF",
+                        data=_dxf_for_option(plot, opt),
+                        file_name="house_plan_option_%s.dxf"
+                                  % opt["label"],
+                        mime="image/vnd.dxf",
+                        key="dxf_%s_rendered" % opt["label"])
                 with right:
                     st.image(
                         cache[plan_key],
@@ -596,6 +615,12 @@ if _has_results(st.session_state):
             else:
                 st.markdown(_svg_for_option(plot, opt),
                             unsafe_allow_html=True)
+                st.download_button(
+                    "Download DXF",
+                    data=_dxf_for_option(plot, opt),
+                    file_name="house_plan_option_%s.dxf" % opt["label"],
+                    mime="image/vnd.dxf",
+                    key="dxf_%s" % opt["label"])
 
     if len(options) == 2:
         st.info("Two layouts fit this plot shape.")
