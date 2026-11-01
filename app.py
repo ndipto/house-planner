@@ -587,8 +587,10 @@ if _has_results(st.session_state):
                 with right:
                     st.image(
                         cache[plan_key],
-                        caption="AI presentation render - check "
-                                "against the plan")
+                        caption="AI renders are experimental and may "
+                                "not match the plan exactly. The floor "
+                                "plan is the reliable drawing; always "
+                                "check the render against it.")
                     if notes.get(plan_key):
                         st.caption(notes[plan_key])
             else:
