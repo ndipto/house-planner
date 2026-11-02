@@ -25,19 +25,19 @@ from voice import transcribe_audio
 
 
 # --- Demo look: one CSS block for the whole page ---
-# DM Serif Display for headings, Inter for everything else; bronze
+# Plus Jakarta Sans for headings, Inter for everything else; bronze
 # (#8A5A3B) accents on dark (#2B2B2B). Purely visual: if Streamlit
 # ever renames a selector below, the page just falls back to its
 # default look instead of breaking.
 _STYLE = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap');
 
 [data-testid="stAppViewContainer"] {
     font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
 }
 h1, h2, h3 {
-    font-family: 'DM Serif Display', Georgia, serif !important;
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
 }
 
 /* Dark header band with a thin bronze accent line. */
@@ -50,7 +50,7 @@ h1, h2, h3 {
     padding: 2.2rem 2rem 1.6rem 2rem;
 }
 .hp-band h1 {
-    font-size: 2.7rem; font-weight: 400; color: #FAF8F5;
+    font-size: 2.7rem; font-weight: 800; color: #FAF8F5;
     margin: 0; line-height: 1.1;
 }
 .hp-band p { color: #D8D0C4; font-size: 1.02rem; margin: .45rem 0 0 0; }
@@ -130,6 +130,146 @@ _ICON_RENDER = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
                 'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M12 4v11"/>'
                 '<path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>')
+_ICON_CHECK = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+               'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+               'stroke-linejoin="round"><circle cx="12" cy="12" r="8"/>'
+               '<path d="M9 12l2 2 4-4"/></svg>')
+_ICON_IMAGE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+               'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+               'stroke-linejoin="round"><rect x="4" y="5" width="16" '
+               'height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/>'
+               '<path d="M4 17l5-4 4 3 3-2 4 3"/></svg>')
+_ICON_FILE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/>'
+              '<path d="M14 3v4h4"/></svg>')
+_ICON_MIC = ('<svg width="44" height="44" viewBox="0 0 24 24" fill="none" '
+             'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+             'stroke-linejoin="round"><rect x="9" y="3" width="6" '
+             'height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>'
+             '<path d="M12 18v3"/></svg>')
+
+
+# --- SaaS look: landing page + planner additions (loaded after _STYLE) ---
+# Same deal as _STYLE: purely visual, fails soft if Streamlit ever
+# renames a selector.
+_STYLE_SAAS = """
+<style>
+/* Landing nav + hero. */
+.hp-logo {
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+    font-weight: 800; font-size: 1.25rem; color: #2B2B2B;
+    margin: 0; padding-top: .45rem;
+}
+.hp-hero {
+    background: linear-gradient(180deg, #FAF8F5 0%, #EFEAE4 100%);
+    margin: -1rem -2rem 1.4rem -2rem; padding: 4rem 1.5rem 3.4rem 1.5rem;
+    text-align: center; border-radius: 0 0 16px 16px;
+}
+.hp-hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 800;
+    color: #2B2B2B; margin: 0; line-height: 1.15;
+}
+.hp-hero p {
+    color: #5C564F; font-size: clamp(1rem, 2vw, 1.15rem);
+    max-width: 34rem; margin: 1rem auto 0 auto;
+}
+.hp-note {
+    text-align: center; color: #6B6560; font-size: .85rem;
+    margin: .4rem 0 0 0;
+}
+
+/* Landing sections + feature cards with hover lift. */
+.hp-section {
+    text-align: center; font-size: 1.5rem; font-weight: 800;
+    color: #2B2B2B; margin: 2.6rem 0 1.2rem 0;
+}
+.hp-feat {
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.4rem 1.1rem; text-align: center;
+    box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.hp-feat:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px rgba(43, 43, 43, .12);
+}
+.hp-num {
+    width: 2.2rem; height: 2.2rem; border-radius: 50%;
+    background: #8A5A3B; color: #FFFFFF; font-weight: 800;
+    font-size: 1.05rem; display: flex; align-items: center;
+    justify-content: center; margin: 0 auto .6rem auto;
+}
+
+/* Landing closing band + footer. */
+.hp-cta {
+    background: #2B2B2B; border-radius: 16px;
+    margin: 2.6rem 0 1.2rem 0; padding: 2.6rem 1.5rem 2.2rem 1.5rem;
+    text-align: center;
+}
+.hp-cta h2 { color: #FAF8F5; margin: 0; }
+.hp-footer {
+    text-align: center; color: #6B6560; font-size: .8rem;
+    margin: 0 0 1rem 0;
+}
+
+/* Big voice card + tall full-width recorder. */
+.hp-voice {
+    background: #FAF8F5; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.2rem 1rem .9rem 1rem; text-align: center;
+    margin-bottom: .6rem;
+}
+.hp-voice-title {
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+    font-weight: 800; font-size: 1.1rem; color: #2B2B2B;
+    margin: .5rem 0 .2rem 0;
+}
+.hp-voice-hint { color: #6B6560; font-size: .88rem; margin: 0; }
+[data-testid="stAudioInput"] { width: 100%; }
+[data-testid="stAudioInput"] button {
+    min-height: 56px; width: 100%; border-radius: 12px;
+}
+
+/* Rounded widgets + button hover everywhere. */
+[data-testid="stBaseButton-primary"],
+[data-testid="stBaseButton-secondary"] {
+    border-radius: 12px; transition: all .15s ease;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(138, 90, 59, .35);
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    border-color: #8A5A3B; color: #8A5A3B;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea {
+    border-radius: 12px;
+}
+[data-testid="stExpander"] { border-radius: 12px; }
+
+/* Sidebar section labels: small bronze caps. */
+[data-testid="stSidebar"] h3 {
+    font-family: 'Inter', sans-serif !important;
+    font-size: .78rem !important; letter-spacing: .09em;
+    text-transform: uppercase; color: #8A5A3B !important;
+}
+
+/* Transparent header: the sidebar toggle keeps working while the
+   menu bar and branding stay hidden. */
+[data-testid="stHeader"] { background-color: transparent; }
+[data-testid="stHeader"] [data-testid="stToolbar"] { display: none; }
+</style>
+"""
+
+# Landing only: no sidebar at all (injected on the home screen).
+_HIDE_SIDEBAR = """
+<style>
+[data-testid="stSidebar"] { display: none; }
+[data-testid="stSidebarCollapsedControl"] { display: none; }
+</style>
+"""
 
 
 def _example_svg():
@@ -424,7 +564,7 @@ def _why_it_works(opt):
             sentences.append("%s - partly, worth a second look."
                              % row["Check"])
         else:
-            sentences.append("%s - needs an architect's review."
+            sentences.append("%s - needs a closer look."
                              % row["Check"])
     return sentences
 
@@ -476,12 +616,40 @@ def _show_error(friendly, err):
 _RESULT_KEYS = ("result_signature", "result_program", "result_options")
 
 
+def _safe_float(value):
+    """float(value), or None when the field is still empty."""
+    if value is None:
+        return None
+    return float(value)
+
+
+def _safe_int(value):
+    """int(value), or None when the field is still empty."""
+    if value is None:
+        return None
+    return int(value)
+
+
 def _brief_signature(frontage_ft, depth_ft, north_angle, num_bedrooms,
                      toilets_text, wishes):
     """Fingerprint of the current brief; any input change alters it."""
-    return (float(frontage_ft), float(depth_ft), float(north_angle),
-            int(num_bedrooms), str(toilets_text).strip(),
-            str(wishes or ""))
+    return (_safe_float(frontage_ft), _safe_float(depth_ft),
+            _safe_float(north_angle), _safe_int(num_bedrooms),
+            str(toilets_text).strip(), str(wishes or ""))
+
+
+def _missing_fields(frontage_ft, depth_ft, num_bedrooms, toilets_text):
+    """Labels of the required fields the client has not filled yet."""
+    missing = []
+    if frontage_ft is None:
+        missing.append("road frontage")
+    if depth_ft is None:
+        missing.append("plot depth")
+    if num_bedrooms is None:
+        missing.append("number of bedrooms")
+    if not str(toilets_text or "").strip():
+        missing.append("number of toilets")
+    return missing
 
 
 def _has_results(state):
@@ -537,11 +705,108 @@ def _options_sentence(count):
         head = "Here is 1 layout option for your brief."
     else:
         head = "Here are %d layout options for your brief." % count
-    return (head + " 'Needs review' means an architect should take "
+    return (head + " 'Needs review' means this option is worth "
             "a second look - the reason is shown under that option.")
 
-# --- Header band: dark, full-width, serif title (always visible) ---
+# --- Screen router: landing first, planner on "Start planning" ---
+# Both style blocks load on every screen; the landing hides the
+# sidebar and stops before the planner code below. Switching screens
+# is plain session state, so no reload ever loses the inputs.
 st.markdown(_STYLE, unsafe_allow_html=True)
+st.markdown(_STYLE_SAAS, unsafe_allow_html=True)
+_SCREEN = st.session_state.get("screen", "home")
+if _SCREEN == "home":
+    st.markdown(_HIDE_SIDEBAR, unsafe_allow_html=True)
+    # Top nav: logo left, Start button right.
+    nav_logo, nav_btn = st.columns([5, 1])
+    with nav_logo:
+        st.markdown('<p class="hp-logo">House Planner</p>',
+                    unsafe_allow_html=True)
+    with nav_btn:
+        nav_go = st.button("Start planning", key="nav_start",
+                           type="primary", use_container_width=True)
+    # Hero: headline + sub + large button + free note.
+    st.markdown(
+        '<div class="hp-hero"><h1>Floor plans in seconds</h1>'
+        "<p>Enter your plot and family needs. Get three ready-to-review "
+        "layouts, a colored render and a DXF file.</p></div>",
+        unsafe_allow_html=True)
+    _hero_l, hero_c, _hero_r = st.columns([1, 1, 1])
+    with hero_c:
+        hero_go = st.button("Start planning", key="hero_start",
+                            type="primary", use_container_width=True)
+    st.markdown('<p class="hp-note">Free to try</p>',
+                unsafe_allow_html=True)
+    # Feature cards.
+    st.markdown('<h2 class="hp-section">Everything you need to review '
+                "a concept</h2>", unsafe_allow_html=True)
+    feat1, feat2, feat3, feat4 = st.columns(4)
+    with feat1:
+        st.markdown(
+            '<div class="hp-feat">%s'
+            '<div class="hp-step-title">3 layout options</div>'
+            '<p class="hp-step-text">Three distinct concepts to '
+            "compare</p></div>" % _ICON_PLAN, unsafe_allow_html=True)
+    with feat2:
+        st.markdown(
+            '<div class="hp-feat">%s'
+            '<div class="hp-step-title">Smart room placement</div>'
+            '<p class="hp-step-text">Rooms sized and placed by clear '
+            "rules</p></div>" % _ICON_CHECK, unsafe_allow_html=True)
+    with feat3:
+        st.markdown(
+            '<div class="hp-feat">%s'
+            '<div class="hp-step-title">Colored render</div>'
+            '<p class="hp-step-text">A presentation-ready top-down '
+            "view</p></div>" % _ICON_IMAGE, unsafe_allow_html=True)
+    with feat4:
+        st.markdown(
+            '<div class="hp-feat">%s'
+            '<div class="hp-step-title">DXF for CAD</div>'
+            '<p class="hp-step-text">Open every plan in your CAD '
+            "app</p></div>" % _ICON_FILE, unsafe_allow_html=True)
+    # How it works: 3 numbered steps.
+    st.markdown('<h2 class="hp-section">How it works</h2>',
+                unsafe_allow_html=True)
+    land1, land2, land3 = st.columns(3)
+    with land1:
+        st.markdown(
+            '<div class="hp-feat"><div class="hp-num">1</div>'
+            '<div class="hp-step-title">Describe your plot</div>'
+            '<p class="hp-step-text">Plot size plus family needs '
+            "and wishes</p></div>", unsafe_allow_html=True)
+    with land2:
+        st.markdown(
+            '<div class="hp-feat"><div class="hp-num">2</div>'
+            '<div class="hp-step-title">Get 3 plan options</div>'
+            '<p class="hp-step-text">Three layouts ready to '
+            "review</p></div>", unsafe_allow_html=True)
+    with land3:
+        st.markdown(
+            '<div class="hp-feat"><div class="hp-num">3</div>'
+            '<div class="hp-step-title">Render or download</div>'
+            '<p class="hp-step-text">Colored render or DXF '
+            "file</p></div>", unsafe_allow_html=True)
+    # Closing band + footer.
+    st.markdown('<div class="hp-cta"><h2>Ready to see your '
+                "plans?</h2></div>", unsafe_allow_html=True)
+    _cta_l, cta_c, _cta_r = st.columns([1, 1, 1])
+    with cta_c:
+        cta_go = st.button("Start planning", key="cta_start",
+                           type="primary", use_container_width=True)
+    st.markdown('<p class="hp-footer">Concept only - not for '
+                "construction</p>", unsafe_allow_html=True)
+    if nav_go or hero_go or cta_go:
+        st.session_state["screen"] = "planner"
+        st.rerun()
+    st.stop()
+
+# --- Planner screen: back link + header band + sidebar + results ---
+back_col, _back_spacer = st.columns([1, 5])
+with back_col:
+    if st.button("\u2190 Back to home", key="back_home"):
+        st.session_state["screen"] = "home"
+        st.rerun()
 st.markdown(
     '<div class="hp-band">'
     "<h1>House Planner</h1>"
@@ -562,8 +827,8 @@ with st.sidebar:
         st.session_state["in_toilets"] = "3"
         st.rerun()
     st.subheader("Plot")
-    frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40, key="in_frontage")
-    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60, key="in_depth")
+    frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=None, placeholder="e.g. 40", key="in_frontage")
+    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=None, placeholder="e.g. 60", key="in_depth")
     north_angle = st.slider(
         "North direction (degrees)",
         min_value=0, max_value=360, value=0, key="in_north",
@@ -572,23 +837,35 @@ with st.sidebar:
     )
     road_side = _closest_road(north_angle)
     st.caption("Road on the %s side." % road_side.capitalize())
-    st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
-                unsafe_allow_html=True)
+    if frontage_ft and depth_ft:
+        st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
+                    unsafe_allow_html=True)
+    else:
+        st.caption("Enter frontage and depth to see your plot.")
     st.divider()
     st.subheader("Family")
     num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
-                                   max_value=10, value=3, key="in_bedrooms")
+                                   max_value=10, value=None,
+                                   placeholder="e.g. 3", key="in_bedrooms")
     # Toilets: NO default on purpose. The field starts empty and the
-    # client must fill it (number_input can't do that, so this is text).
-    max_toilets = num_bedrooms + 1
+    # client must fill it; the allowed range shows once bedrooms do.
+    max_toilets = int(num_bedrooms) + 1 if num_bedrooms else None
     toilets_text = st.text_input(
         "Number of toilets",
         value="", key="in_toilets",
-        placeholder=f"Required: whole number from 1 to {max_toilets}",
+        placeholder="e.g. 2",
     )
+    if max_toilets:
+        st.caption("Whole number from 1 to %d." % max_toilets)
     st.divider()
     st.subheader("Wishes")
-    voice_note = st.audio_input("Speak your brief (optional, Bangla or English)")
+    st.markdown(
+        '<div class="hp-voice">%s'
+        '<div class="hp-voice-title">Speak your brief</div>'
+        '<p class="hp-voice-hint">Tap and talk - we\'ll type it '
+        "for you</p></div>" % _ICON_MIC, unsafe_allow_html=True)
+    voice_note = st.audio_input("Speak your brief (optional)",
+                                label_visibility="collapsed")
     if voice_note is not None:
         # New recording only: transcribe once, then fill the wishes box
         # below (set before the widget exists, so no rerun warning).
@@ -619,10 +896,17 @@ if _results_stale(st.session_state, _signature):
 
 # --- Generate: ask the AI, then store results in session state ---
 if generate_pressed:
-    # Toilets are required: stop with a clear message when empty/invalid.
-    if not toilets_text.strip():
-        st.error("Please enter the number of toilets (1 to %d) before generating." % max_toilets)
+    # Empty inputs: list everything missing in one friendly message.
+    missing = _missing_fields(frontage_ft, depth_ft, num_bedrooms,
+                              toilets_text)
+    if missing:
+        st.warning("Please fill in: %s - or press 'Try an example'."
+                   % ", ".join(missing))
         st.stop()
+    frontage_ft = float(frontage_ft)
+    depth_ft = float(depth_ft)
+    num_bedrooms = int(num_bedrooms)
+    max_toilets = num_bedrooms + 1
     try:
         num_toilets = int(toilets_text.strip())
     except ValueError:
@@ -830,7 +1114,7 @@ if _has_results(st.session_state):
                                            row["status"])}
                 for row in detail["wishes"]
             ])
-    st.caption("Concept only - not for construction; consult a licensed architect.")
+    st.caption("Concept only - not for construction.")
 else:
     # Before generating: three clean step cards + one example plan.
     step1, step2, step3 = st.columns(3)
@@ -844,8 +1128,8 @@ else:
         st.markdown(
             '<div class="hp-step">%s'
             '<div class="hp-step-title">Get 3 plan options</div>'
-            '<p class="hp-step-text">Three layouts from an '
-            "architect's rules</p>"
+            '<p class="hp-step-text">Three layouts that follow '
+            "proven design rules</p>"
             "</div>" % _ICON_PLAN, unsafe_allow_html=True)
     with step3:
         st.markdown(
@@ -853,9 +1137,3 @@ else:
             '<div class="hp-step-title">Render or download</div>'
             '<p class="hp-step-text">Colored render or DXF file</p>'
             "</div>" % _ICON_RENDER, unsafe_allow_html=True)
-    example = _example_svg()
-    if example:
-        st.markdown('<div class="hp-example">' + example + "</div>",
-                    unsafe_allow_html=True)
-        st.markdown('<p class="hp-caption">Example result</p>',
-                    unsafe_allow_html=True)

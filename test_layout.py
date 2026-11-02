@@ -954,8 +954,8 @@ def test_why_it_works_sentences():
                       "status": "BEND"}]}
     sentences = app._why_it_works(opt)
     assert sentences[0] == "Room sizes feel right.", sentences
-    assert sentences[1] == ("Kitchen opens into dining - needs an "
-                            "architect's review."), sentences
+    assert sentences[1] == ("Kitchen opens into dining - needs a "
+                            "closer look."), sentences
     assert sentences[2] == ("Welcoming entry with porch - partly, worth "
                             "a second look."), sentences
     joined = " ".join(sentences)
@@ -963,6 +963,29 @@ def test_why_it_works_sentences():
                   "rule 1", "rule 4"):
         assert token not in joined, token
     print("PASS test_why_it_works_sentences")
+
+
+def test_empty_defaults_and_missing_fields():
+    """Empty number boxes: the signature tolerates None, Generate
+    lists what is missing (all four inputs start empty on purpose)."""
+    import app
+
+    empty = app._brief_signature(frontage_ft=None, depth_ft=None,
+                                 north_angle=0, num_bedrooms=None,
+                                 toilets_text="", wishes="")
+    full = app._brief_signature(frontage_ft=40, depth_ft=60,
+                                north_angle=0, num_bedrooms=3,
+                                toilets_text="3", wishes="")
+    assert empty != full, "filling fields changes the fingerprint"
+    assert app._missing_fields(None, None, None, "") == [
+        "road frontage", "plot depth", "number of bedrooms",
+        "number of toilets"], "all four listed when all empty"
+    assert app._missing_fields(40, 60, 3, "2") == [], "full brief"
+    assert app._missing_fields(40, 60, 3, "  ") == ["number of toilets"], \
+        "blank toilets count as missing"
+    assert app._missing_fields(None, 60, 3, "2") == ["road frontage"], \
+        "one missing, one listed"
+    print("PASS test_empty_defaults_and_missing_fields")
 
 
 def test_master_swap_helper():
@@ -1531,6 +1554,7 @@ if __name__ == "__main__":
     test_session_state_helpers()
     test_demo_limits_and_options_sentence()
     test_why_it_works_sentences()
+    test_empty_defaults_and_missing_fields()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()

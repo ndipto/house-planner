@@ -36,8 +36,9 @@ pushed to GitHub, and your Meta Model API key. Takes about 10 minutes.
 
 ## 3. Check it works
 
-1. Open the app link, fill any brief in the sidebar (or press
-   **Try an example**), enter toilets, press **Generate plans**.
+1. Open the app link, press **Start planning**, fill any brief
+   in the sidebar (or press **Try an example**), enter toilets,
+   press **Generate plans**.
 2. You should see tabs for options A/B/C, each with a large plan
    drawing plus a narrow side panel; rooms, explanation and the
    checklist sit under the collapsed **Plan details** expander.
