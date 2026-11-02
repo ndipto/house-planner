@@ -22,12 +22,8 @@ def _store():
     """st.session_state inside a run, else None (never raises)."""
     try:
         import streamlit as st
-        try:
-            from streamlit.runtime.scriptrunner_utils.script_run_context import (
-                get_script_run_ctx)
-            if get_script_run_ctx() is None:
-                return None
-        except Exception:
+        from streamlit import runtime
+        if not runtime.exists():
             return None
         return st.session_state
     except Exception:

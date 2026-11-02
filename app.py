@@ -4,7 +4,6 @@
 # Run it with: streamlit run app.py
 # Then open the local address Streamlit prints (usually http://localhost:8501).
 
-import base64
 import logging
 import os
 import re
@@ -26,101 +25,88 @@ from voice import transcribe_audio
 
 
 # --- Demo look: one CSS block for the whole page ---
-# Poppins for headings, Inter for everything else; warm orange
-# gradient accents on light grey (#F5F6F8). Purely visual: if
-# Streamlit ever renames a selector below, the page just falls back
-# to its default look instead of breaking.
+# DM Serif Display for headings, Inter for everything else; bronze
+# (#8A5A3B) accents on dark (#2B2B2B). Purely visual: if Streamlit
+# ever renames a selector below, the page just falls back to its
+# default look instead of breaking.
 _STYLE = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
 
 [data-testid="stAppViewContainer"] {
     font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
-    background-color: #F5F6F8;
 }
 h1, h2, h3 {
-    font-family: 'Poppins', 'Inter', sans-serif !important;
+    font-family: 'DM Serif Display', Georgia, serif !important;
 }
 
-/* Dark header band with a warm accent line. */
+/* Dark header band with a thin bronze accent line. */
 [data-testid="stMainBlockContainer"] { padding-top: 1rem; }
 .hp-band {
-    background: #1F2937;
-    border-bottom: 3px solid #FF6B4A;
-    border-radius: 0 0 22px 22px;
+    background: #2B2B2B;
+    border-bottom: 3px solid #8A5A3B;
+    border-radius: 0 0 14px 14px;
     margin: -1rem -2rem 1.6rem -2rem;
     padding: 2.2rem 2rem 1.6rem 2rem;
 }
 .hp-band h1 {
-    font-size: 2.7rem; font-weight: 800; color: #FFFFFF;
+    font-size: 2.7rem; font-weight: 400; color: #FAF8F5;
     margin: 0; line-height: 1.1;
 }
-.hp-band p { color: #E5E7EB; font-size: 1.02rem; margin: .45rem 0 0 0; }
-.hp-band .hp-concept { font-size: .8rem; color: #9CA3AF; margin-top: .5rem; }
+.hp-band p { color: #D8D0C4; font-size: 1.02rem; margin: .45rem 0 0 0; }
+.hp-band .hp-concept { font-size: .8rem; color: #A79E90; margin-top: .5rem; }
 
 /* Start-screen step cards + example plan. */
 .hp-step {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
     padding: 1.4rem 1.1rem; text-align: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+    box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
 }
 .hp-step-title {
-    font-weight: 700; font-size: 1.05rem; color: #1F2937;
+    font-weight: 700; font-size: 1.05rem; color: #2B2B2B;
     margin: .6rem 0 .25rem 0;
 }
-.hp-step-text { color: #6B7280; font-size: .9rem; margin: 0; }
+.hp-step-text { color: #6B6560; font-size: .9rem; margin: 0; }
 .hp-example {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
-    padding: 1.2rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.2rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
     margin-top: 1.4rem;
 }
 .hp-example svg { width: 100%; height: auto; display: block; }
 .hp-caption {
-    text-align: center; color: #6B7280; font-size: .85rem;
+    text-align: center; color: #6B6560; font-size: .85rem;
     margin: .5rem 0 0 0;
-}
-
-/* Orange icon tiles inside cards. */
-.hp-step > svg {
-    width: 44px; height: 44px; padding: 9px; box-sizing: border-box;
-    background: #FFF1EA; border-radius: 14px;
 }
 
 /* Result cards: the plan and its side panel. */
 [data-testid="stTabContent"] div[data-testid="column"] {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
-    padding: 1.4rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.4rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .10);
 }
 .hp-option-title {
-    font-size: 1.35rem; font-weight: 700; color: #1F2937;
+    font-size: 1.35rem; font-weight: 700; color: #2B2B2B;
     margin: 0 0 .5rem 0;
 }
 
-/* Gradient pill primary buttons; outlined DXF download. */
+/* Bronze filled primary buttons; outlined DXF download. */
 [data-testid="stBaseButton-primary"] {
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    border: none; border-radius: 999px; font-weight: 600;
+    background-color: #8A5A3B; border-color: #8A5A3B;
 }
 [data-testid="stBaseButton-primary"]:hover {
-    background: #F2553A; border: none;
+    background-color: #74492F; border-color: #74492F;
 }
 div[data-testid="stDownloadButton"] button {
-    border: 1.5px solid #FF6B4A; color: #FF6B4A; background: #FFFFFF;
-    border-radius: 999px; font-weight: 600;
+    border: 1px solid #8A5A3B; color: #8A5A3B; background: transparent;
 }
 div[data-testid="stDownloadButton"] button:hover {
-    border-color: #F2553A; color: #F2553A;
-    background: #FFF1EA;
+    border-color: #8A5A3B; color: #74492F;
+    background: rgba(138, 90, 59, .08);
 }
 
-/* Option tabs as pill chips; selected is the warm gradient. */
-button[data-testid="stTab"] {
-    border: 1px solid #ECEEF2; border-radius: 999px; background: #FFFFFF;
-    color: #1F2937; padding: 4px 18px;
-}
+/* Selected option tab in bronze with a bold label. */
 button[data-testid="stTab"][aria-selected="true"] {
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    border-color: transparent; color: #FFFFFF; font-weight: 700;
+    color: #8A5A3B; font-weight: 700;
+    background: rgba(138, 90, 59, .10); border-radius: 8px 8px 0 0;
 }
 
 /* Hide Streamlit's menu, footer and branding. */
@@ -133,198 +119,17 @@ footer { visibility: hidden; }
 # Small line icons for the three start-screen cards (inline SVG so
 # the page needs no image files or emoji).
 _ICON_PLOT = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
+              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
               'stroke-linejoin="round"><path d="M3 11 12 4l9 7"/>'
               '<path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>')
 _ICON_PLAN = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
+              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
               'stroke-linejoin="round"><rect x="4" y="4" width="16" '
               'height="16" rx="1"/><path d="M4 12h16M12 12v8"/></svg>')
 _ICON_RENDER = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-                'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
+                'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M12 4v11"/>'
                 '<path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>')
-_ICON_CHECK = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-               'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
-               'stroke-linejoin="round"><circle cx="12" cy="12" r="8"/>'
-               '<path d="M9 12l2 2 4-4"/></svg>')
-_ICON_IMAGE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-               'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
-               'stroke-linejoin="round"><rect x="4" y="5" width="16" '
-               'height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/>'
-               '<path d="M4 17l5-4 4 3 3-2 4 3"/></svg>')
-_ICON_FILE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
-              'stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/>'
-              '<path d="M14 3v4h4"/></svg>')
-_ICON_MIC = ('<svg width="44" height="44" viewBox="0 0 24 24" fill="none" '
-             'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
-             'stroke-linejoin="round"><rect x="9" y="3" width="6" '
-             'height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>'
-             '<path d="M12 18v3"/></svg>')
-def _hero_img_tag():
-    """Landing hero <img> tag from assets/hero.png, or "" if missing.
-
-    The file is generated once with Muse Image and committed; the
-    page never calls the image service at load. A missing file still
-    leaves a clean gradient hero behind.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(here, "assets", "hero.png")
-    try:
-        with open(path, "rb") as handle:
-            blob = base64.b64encode(handle.read()).decode("ascii")
-    except OSError:
-        return ""
-    return ('<img src="data:image/png;base64,%s" '
-            'alt="Modern family house">' % blob)
-
-
-# --- SaaS look: landing page + planner additions (loaded after _STYLE) ---
-# Same deal as _STYLE: purely visual, fails soft if Streamlit ever
-# renames a selector.
-_STYLE_SAAS = """
-<style>
-/* Landing nav. */
-.hp-logo {
-    font-family: 'Poppins', 'Inter', sans-serif;
-    font-weight: 800; font-size: 1.25rem; color: #1F2937;
-    margin: 0; padding-top: .45rem;
-}
-
-/* One-screen landing: text left, image right (stacked on phones). */
-.hp-screen {
-    display: flex; gap: 2.5rem; align-items: center;
-}
-.hp-screen-txt { flex: 1 1 auto; }
-.hp-pill-solid {
-    display: inline-block; color: #FFFFFF;
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    font-size: .78rem; font-weight: 600; letter-spacing: .06em;
-    text-transform: uppercase; border-radius: 999px;
-    padding: .3rem .9rem; margin: 0 0 .9rem 0;
-}
-.hp-screen h1 {
-    font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 800;
-    color: #1F2937; margin: 0; line-height: 1.15;
-}
-.hp-screen p {
-    color: #6B7280; font-size: clamp(1rem, 2vw, 1.12rem);
-    margin: .9rem 0 0 0;
-}
-.hp-screen-img { flex: 0 0 44%; }
-.hp-screen-img img {
-    width: 100%; height: 52vh; object-fit: cover; display: block;
-    border-radius: 22px; box-shadow: 0 8px 24px rgba(0, 0, 0, .10);
-}
-@media (max-width: 640px) {
-    .hp-screen { flex-direction: column; gap: 1.2rem; }
-    .hp-screen-img { flex-basis: auto; width: 100%; order: -1; }
-    .hp-screen-img img { height: 30vh; }
-}
-.hp-footer {
-    text-align: center; color: #6B7280; font-size: .8rem;
-    margin: 1.2rem 0 0 0;
-}
-
-/* Voice card: title + hint on top, the REAL recorder joined below
-   as one card, so the only mic-looking control is the live one. */
-.hp-voice {
-    background: #FFFFFF; border: 1px solid #ECEEF2;
-    border-bottom: none; border-radius: 22px 22px 0 0;
-    padding: 1.2rem 1rem .9rem 1rem; text-align: center;
-    margin-bottom: 0;
-}
-.hp-voice-title {
-    font-family: 'Poppins', 'Inter', sans-serif;
-    font-weight: 800; font-size: 1.1rem; color: #1F2937;
-    margin: 0 0 .2rem 0;
-}
-.hp-voice-hint { color: #6B7280; font-size: .88rem; margin: 0; }
-[data-testid="stAudioInput"] {
-    width: 100%; background: #FFFFFF; border: 1px solid #ECEEF2;
-    border-top: none; border-radius: 0 0 22px 22px;
-    padding: .9rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
-}
-[data-testid="stAudioInput"] button {
-    min-height: 64px; width: 100%; border-radius: 14px;
-    border: 1.5px solid #FF6B4A;
-}
-[data-testid="stAudioInput"] svg { width: 28px; height: 28px; }
-
-/* Pill buttons with hover + rounded white inputs everywhere. */
-[data-testid="stBaseButton-primary"],
-[data-testid="stBaseButton-secondary"] {
-    border-radius: 999px; transition: all .15s ease;
-}
-[data-testid="stBaseButton-primary"]:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(255, 107, 74, .35);
-}
-[data-testid="stBaseButton-secondary"]:hover {
-    border-color: #FF6B4A; color: #FF6B4A;
-}
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input,
-[data-testid="stTextArea"] textarea {
-    border-radius: 14px; background-color: #FFFFFF;
-    border-color: #ECEEF2;
-}
-[data-testid="stExpander"] { border-radius: 12px; }
-
-/* Sidebar: white panel, orange section labels. */
-[data-testid="stSidebarContent"] { background-color: #FFFFFF; }
-[data-testid="stSidebar"] h3 {
-    font-family: 'Inter', sans-serif !important;
-    font-size: .78rem !important; letter-spacing: .09em;
-    text-transform: uppercase; color: #FF6B4A !important;
-}
-
-/* Transparent header: the sidebar toggle keeps working while the
-   menu bar and branding stay hidden. */
-[data-testid="stHeader"] { background-color: transparent; }
-[data-testid="stHeader"] [data-testid="stToolbar"] { display: none; }
-
-/* AI activity card: rows of dot + model + task + duration. */
-.hp-act {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 14px;
-    padding: .8rem .9rem; margin-top: .8rem;
-}
-.hp-act-title {
-    font-family: 'Poppins', 'Inter', sans-serif;
-    font-weight: 700; font-size: .95rem; color: #1F2937; margin: 0;
-}
-.hp-act-sub { color: #6B7280; font-size: .78rem; margin: 0 0 .5rem 0; }
-.hp-act-row {
-    display: flex; align-items: center; gap: .45rem;
-    font-size: .82rem; color: #1F2937; padding: .18rem 0;
-}
-.hp-act-row b { font-weight: 700; }
-.hp-act-dur { margin-left: auto; color: #6B7280; white-space: nowrap; }
-.hp-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.hp-dot-done { background: #22C55E; }
-.hp-dot-retried { background: #F59E0B; }
-.hp-dot-failed { background: #EF4444; }
-</style>
-"""
-
-# Landing only: no sidebar at all (injected on the home screen).
-_HIDE_SIDEBAR = """
-<style>
-[data-testid="stSidebar"] { display: none; }
-[data-testid="stSidebarCollapsedControl"] { display: none; }
-</style>
-"""
-
-# Landing only: the one screen fills the viewport and sits centered
-# in it (injected on the home screen, never on the planner).
-_HOME_CENTER = """
-<style>
-[data-testid="stMainBlockContainer"] > div[data-testid="stVerticalBlock"] {
-    min-height: 100vh; min-height: 100dvh; justify-content: center;
-}
-</style>
-"""
 
 
 def _example_svg():
@@ -671,40 +476,12 @@ def _show_error(friendly, err):
 _RESULT_KEYS = ("result_signature", "result_program", "result_options")
 
 
-def _safe_float(value):
-    """float(value), or None when the field is still empty."""
-    if value is None:
-        return None
-    return float(value)
-
-
-def _safe_int(value):
-    """int(value), or None when the field is still empty."""
-    if value is None:
-        return None
-    return int(value)
-
-
 def _brief_signature(frontage_ft, depth_ft, north_angle, num_bedrooms,
                      toilets_text, wishes):
     """Fingerprint of the current brief; any input change alters it."""
-    return (_safe_float(frontage_ft), _safe_float(depth_ft),
-            _safe_float(north_angle), _safe_int(num_bedrooms),
-            str(toilets_text).strip(), str(wishes or ""))
-
-
-def _missing_fields(frontage_ft, depth_ft, num_bedrooms, toilets_text):
-    """Labels of the required fields the client has not filled yet."""
-    missing = []
-    if frontage_ft is None:
-        missing.append("road frontage")
-    if depth_ft is None:
-        missing.append("plot depth")
-    if num_bedrooms is None:
-        missing.append("number of bedrooms")
-    if not str(toilets_text or "").strip():
-        missing.append("number of toilets")
-    return missing
+    return (float(frontage_ft), float(depth_ft), float(north_angle),
+            int(num_bedrooms), str(toilets_text).strip(),
+            str(wishes or ""))
 
 
 def _has_results(state):
@@ -763,76 +540,8 @@ def _options_sentence(count):
     return (head + " 'Needs review' means this option is worth "
             "a second look - the reason is shown under that option.")
 
-
-def _activity_entries():
-    """Stored activity entries (newest last), or [] outside runs."""
-    try:
-        return list(st.session_state.get("ai_activity") or [])
-    except Exception:
-        return []
-
-
-def _activity_card():
-    """Compact 'AI activity' card HTML, or "" when nothing ran yet."""
-    entries = _activity_entries()
-    if not entries:
-        return ""
-    dots = {"done": "hp-dot-done", "retried": "hp-dot-retried",
-            "failed": "hp-dot-failed"}
-    rows = []
-    for row in reversed(entries):
-        try:
-            duration = "%.1f s" % float(row.get("seconds", 0))
-        except (TypeError, ValueError):
-            duration = "? s"
-        rows.append(
-            '<div class="hp-act-row"><span class="hp-dot %s"></span>'
-            "<b>%s</b><span>%s</span>"
-            '<span class="hp-act-dur">%s</span></div>'
-            % (dots.get(row.get("status"), "hp-dot-done"),
-               row.get("label", "?"), row.get("task", "?"), duration))
-    return (
-        '<div class="hp-act"><div class="hp-act-title">AI activity</div>'
-        '<p class="hp-act-sub">Live calls to Meta models</p>%s</div>'
-        % "".join(rows))
-
-# --- Screen router: landing first, planner on "Start planning" ---
-# Both style blocks load on every screen; the landing hides the
-# sidebar and stops before the planner code below. Switching screens
-# is plain session state, so no reload ever loses the inputs.
+# --- Header band: dark, full-width, serif title (always visible) ---
 st.markdown(_STYLE, unsafe_allow_html=True)
-st.markdown(_STYLE_SAAS, unsafe_allow_html=True)
-_SCREEN = st.session_state.get("screen", "home")
-if _SCREEN == "home":
-    st.markdown(_HIDE_SIDEBAR, unsafe_allow_html=True)
-    st.markdown(_HOME_CENTER, unsafe_allow_html=True)
-    # One screen: logo, image + text side by side, one button, footer.
-    st.markdown('<p class="hp-logo">House Planner</p>',
-                unsafe_allow_html=True)
-    st.markdown(
-        '<div class="hp-screen">'
-        '<div class="hp-screen-txt">'
-        '<span class="hp-pill-solid">Plan - Render - Download</span>'
-        "<h1>Design Your Home Smarter</h1>"
-        "<p>Enter your plot and family needs. Get three layouts, "
-        "a colored render and a DXF file.</p>"
-        "</div>"
-        '<div class="hp-screen-img">%s</div>'
-        "</div>" % _hero_img_tag(),
-        unsafe_allow_html=True)
-    home_go = st.button("Start planning", key="home_start",
-                        type="primary")
-    st.markdown('<p class="hp-footer">Concept only - not for '
-                "construction</p>", unsafe_allow_html=True)
-    if home_go:
-        st.session_state["screen"] = "planner"
-        st.rerun()
-    st.stop()
-
-# --- Planner screen: back link + header band + sidebar + results ---
-if st.button("\u2190 Back to home", key="back_home"):
-    st.session_state["screen"] = "home"
-    st.rerun()
 st.markdown(
     '<div class="hp-band">'
     "<h1>House Planner</h1>"
@@ -853,8 +562,8 @@ with st.sidebar:
         st.session_state["in_toilets"] = "3"
         st.rerun()
     st.subheader("Plot")
-    frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=None, placeholder="e.g. 40", key="in_frontage")
-    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=None, placeholder="e.g. 60", key="in_depth")
+    frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40, key="in_frontage")
+    depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60, key="in_depth")
     north_angle = st.slider(
         "North direction (degrees)",
         min_value=0, max_value=360, value=0, key="in_north",
@@ -863,42 +572,29 @@ with st.sidebar:
     )
     road_side = _closest_road(north_angle)
     st.caption("Road on the %s side." % road_side.capitalize())
-    if frontage_ft and depth_ft:
-        st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
-                    unsafe_allow_html=True)
-    else:
-        st.caption("Enter frontage and depth to see your plot.")
+    st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
+                unsafe_allow_html=True)
     st.divider()
     st.subheader("Family")
     num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
-                                   max_value=10, value=None,
-                                   placeholder="e.g. 3", key="in_bedrooms")
+                                   max_value=10, value=3, key="in_bedrooms")
     # Toilets: NO default on purpose. The field starts empty and the
-    # client must fill it; the allowed range shows once bedrooms do.
-    max_toilets = int(num_bedrooms) + 1 if num_bedrooms else None
+    # client must fill it (number_input can't do that, so this is text).
+    max_toilets = num_bedrooms + 1
     toilets_text = st.text_input(
         "Number of toilets",
         value="", key="in_toilets",
-        placeholder="e.g. 2",
+        placeholder=f"Required: whole number from 1 to {max_toilets}",
     )
-    if max_toilets:
-        st.caption("Whole number from 1 to %d." % max_toilets)
     st.divider()
     st.subheader("Wishes")
-    st.markdown(
-        '<div class="hp-voice">'
-        '<div class="hp-voice-title">Speak your brief</div>'
-        '<p class="hp-voice-hint">Tap and talk - we\'ll type it '
-        "for you</p></div>", unsafe_allow_html=True)
-    voice_note = st.audio_input("Speak your brief (optional)",
-                                label_visibility="collapsed")
+    voice_note = st.audio_input("Speak your brief (optional)")
     if voice_note is not None:
         # New recording only: transcribe once, then fill the wishes box
         # below (set before the widget exists, so no rerun warning).
         heard = voice_note.getvalue()
         if st.session_state.get("voice_digest") != hash(heard):
-            with st.spinner("Muse Voice Transcribe is typing your "
-                                "brief..."):
+            with st.spinner("Listening to your recording..."):
                 try:
                     said = transcribe_audio(heard)
                 except Exception as err:
@@ -908,9 +604,6 @@ with st.sidebar:
             if said:
                 st.session_state["in_wishes"] = said
                 st.rerun()
-    if any(row.get("task") == "Voice brief"
-           for row in _activity_entries()):
-        st.markdown(_activity_card(), unsafe_allow_html=True)
     wishes = st.text_area(
         "Family needs and wishes (plain words)",
         placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
@@ -926,17 +619,10 @@ if _results_stale(st.session_state, _signature):
 
 # --- Generate: ask the AI, then store results in session state ---
 if generate_pressed:
-    # Empty inputs: list everything missing in one friendly message.
-    missing = _missing_fields(frontage_ft, depth_ft, num_bedrooms,
-                              toilets_text)
-    if missing:
-        st.warning("Please fill in: %s - or press 'Try an example'."
-                   % ", ".join(missing))
+    # Toilets are required: stop with a clear message when empty/invalid.
+    if not toilets_text.strip():
+        st.error("Please enter the number of toilets (1 to %d) before generating." % max_toilets)
         st.stop()
-    frontage_ft = float(frontage_ft)
-    depth_ft = float(depth_ft)
-    num_bedrooms = int(num_bedrooms)
-    max_toilets = num_bedrooms + 1
     try:
         num_toilets = int(toilets_text.strip())
     except ValueError:
@@ -959,7 +645,7 @@ if generate_pressed:
                  "file, then try again.")
         st.stop()
     # While waiting, show a spinner so the page does not look frozen.
-    with st.spinner("Muse Spark is building the room program..."):
+    with st.spinner("Reading your brief and shaping the rooms..."):
         try:
             result = get_room_program(
                 frontage_ft, depth_ft, road_side,
@@ -1045,8 +731,8 @@ if _has_results(st.session_state):
                                          MAX_RENDERS):
                         st.info(DEMO_LIMIT_MESSAGE)
                     else:
-                        with st.spinner("Muse Image is rendering the "
-                                        "plan..."):
+                        with st.spinner("Making a presentation render of "
+                                        "this plan..."):
                             try:
                                 png, note = _render_option_plan(
                                     plot, opt, extra or "")
@@ -1057,7 +743,6 @@ if _has_results(st.session_state):
                                 cache[plan_key] = png
                                 notes[plan_key] = note
                                 _demo_bump(st.session_state, "renders_used")
-                                st.rerun()
                 st.download_button(
                     "Download DXF",
                     data=_dxf_for_option(plot, opt),
@@ -1065,9 +750,6 @@ if _has_results(st.session_state):
                     mime="image/vnd.dxf",
                     key="dxf_%s" % opt["label"],
                     use_container_width=True)
-                activity = _activity_card()
-                if activity:
-                    st.markdown(activity, unsafe_allow_html=True)
             with plan_col:
                 st.markdown(_svg_for_option(plot, opt),
                             unsafe_allow_html=True)
@@ -1148,7 +830,7 @@ if _has_results(st.session_state):
                                            row["status"])}
                 for row in detail["wishes"]
             ])
-    st.caption("Concept only - not for construction.")
+    st.caption("Concept only - not for construction; consult a licensed architect.")
 else:
     # Before generating: three clean step cards + one example plan.
     step1, step2, step3 = st.columns(3)
