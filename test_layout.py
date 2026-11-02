@@ -988,6 +988,17 @@ def test_empty_defaults_and_missing_fields():
     print("PASS test_empty_defaults_and_missing_fields")
 
 
+def test_hero_asset_committed():
+    """Landing hero image exists and embeds (generated once, committed)."""
+    import app
+
+    tag = app._hero_img_tag()
+    assert tag.startswith("<img "), tag[:60]
+    assert "data:image/png;base64," in tag, \
+        "self-contained image, no page-load service call"
+    print("PASS test_hero_asset_committed")
+
+
 def test_master_swap_helper():
     """_try_master_swap: largest takes the master name, baths follow."""
     rects = [
@@ -1555,6 +1566,7 @@ if __name__ == "__main__":
     test_demo_limits_and_options_sentence()
     test_why_it_works_sentences()
     test_empty_defaults_and_missing_fields()
+    test_hero_asset_committed()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()

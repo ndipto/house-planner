@@ -1,11 +1,11 @@
-# House Planner - calm architectural theme for the demo.
+# House Planner - warm smart-home theme for the demo.
 # Streamlit reads this file automatically on `streamlit run app.py`
 # and on Streamlit Community Cloud. Commit it (unlike secrets.toml,
 # it holds no key - only colors and fonts).
 
 [theme]
-backgroundColor = "#FAF8F5"
-textColor = "#2B2B2B"
-primaryColor = "#8A5A3B"
-secondaryBackgroundColor = "#EFEAE4"
+backgroundColor = "#F5F6F8"
+textColor = "#1F2937"
+primaryColor = "#FF6B4A"
+secondaryBackgroundColor = "#FFFFFF"
 font = "sans serif"

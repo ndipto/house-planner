@@ -4,6 +4,7 @@
 # Run it with: streamlit run app.py
 # Then open the local address Streamlit prints (usually http://localhost:8501).
 
+import base64
 import logging
 import os
 import re
@@ -25,88 +26,101 @@ from voice import transcribe_audio
 
 
 # --- Demo look: one CSS block for the whole page ---
-# Plus Jakarta Sans for headings, Inter for everything else; bronze
-# (#8A5A3B) accents on dark (#2B2B2B). Purely visual: if Streamlit
-# ever renames a selector below, the page just falls back to its
-# default look instead of breaking.
+# Poppins for headings, Inter for everything else; warm orange
+# gradient accents on light grey (#F5F6F8). Purely visual: if
+# Streamlit ever renames a selector below, the page just falls back
+# to its default look instead of breaking.
 _STYLE = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap');
 
 [data-testid="stAppViewContainer"] {
     font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    background-color: #F5F6F8;
 }
 h1, h2, h3 {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
+    font-family: 'Poppins', 'Inter', sans-serif !important;
 }
 
-/* Dark header band with a thin bronze accent line. */
+/* Dark header band with a warm accent line. */
 [data-testid="stMainBlockContainer"] { padding-top: 1rem; }
 .hp-band {
-    background: #2B2B2B;
-    border-bottom: 3px solid #8A5A3B;
-    border-radius: 0 0 14px 14px;
+    background: #1F2937;
+    border-bottom: 3px solid #FF6B4A;
+    border-radius: 0 0 22px 22px;
     margin: -1rem -2rem 1.6rem -2rem;
     padding: 2.2rem 2rem 1.6rem 2rem;
 }
 .hp-band h1 {
-    font-size: 2.7rem; font-weight: 800; color: #FAF8F5;
+    font-size: 2.7rem; font-weight: 800; color: #FFFFFF;
     margin: 0; line-height: 1.1;
 }
-.hp-band p { color: #D8D0C4; font-size: 1.02rem; margin: .45rem 0 0 0; }
-.hp-band .hp-concept { font-size: .8rem; color: #A79E90; margin-top: .5rem; }
+.hp-band p { color: #E5E7EB; font-size: 1.02rem; margin: .45rem 0 0 0; }
+.hp-band .hp-concept { font-size: .8rem; color: #9CA3AF; margin-top: .5rem; }
 
 /* Start-screen step cards + example plan. */
 .hp-step {
-    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
     padding: 1.4rem 1.1rem; text-align: center;
-    box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
 }
 .hp-step-title {
-    font-weight: 700; font-size: 1.05rem; color: #2B2B2B;
+    font-weight: 700; font-size: 1.05rem; color: #1F2937;
     margin: .6rem 0 .25rem 0;
 }
-.hp-step-text { color: #6B6560; font-size: .9rem; margin: 0; }
+.hp-step-text { color: #6B7280; font-size: .9rem; margin: 0; }
 .hp-example {
-    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
-    padding: 1.2rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
+    padding: 1.2rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
     margin-top: 1.4rem;
 }
 .hp-example svg { width: 100%; height: auto; display: block; }
 .hp-caption {
-    text-align: center; color: #6B6560; font-size: .85rem;
+    text-align: center; color: #6B7280; font-size: .85rem;
     margin: .5rem 0 0 0;
+}
+
+/* Orange icon tiles inside cards. */
+.hp-step > svg, .hp-feat > svg {
+    width: 44px; height: 44px; padding: 9px; box-sizing: border-box;
+    background: #FFF1EA; border-radius: 14px;
 }
 
 /* Result cards: the plan and its side panel. */
 [data-testid="stTabContent"] div[data-testid="column"] {
-    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
-    padding: 1.4rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .10);
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
+    padding: 1.4rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
 }
 .hp-option-title {
-    font-size: 1.35rem; font-weight: 700; color: #2B2B2B;
+    font-size: 1.35rem; font-weight: 700; color: #1F2937;
     margin: 0 0 .5rem 0;
 }
 
-/* Bronze filled primary buttons; outlined DXF download. */
+/* Gradient pill primary buttons; outlined DXF download. */
 [data-testid="stBaseButton-primary"] {
-    background-color: #8A5A3B; border-color: #8A5A3B;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    border: none; border-radius: 999px; font-weight: 600;
 }
 [data-testid="stBaseButton-primary"]:hover {
-    background-color: #74492F; border-color: #74492F;
+    background: #F2553A; border: none;
 }
 div[data-testid="stDownloadButton"] button {
-    border: 1px solid #8A5A3B; color: #8A5A3B; background: transparent;
+    border: 1.5px solid #FF6B4A; color: #FF6B4A; background: #FFFFFF;
+    border-radius: 999px; font-weight: 600;
 }
 div[data-testid="stDownloadButton"] button:hover {
-    border-color: #8A5A3B; color: #74492F;
-    background: rgba(138, 90, 59, .08);
+    border-color: #F2553A; color: #F2553A;
+    background: #FFF1EA;
 }
 
-/* Selected option tab in bronze with a bold label. */
+/* Option tabs as pill chips; selected is the warm gradient. */
+button[data-testid="stTab"] {
+    border: 1px solid #ECEEF2; border-radius: 999px; background: #FFFFFF;
+    color: #1F2937; padding: 4px 18px;
+}
 button[data-testid="stTab"][aria-selected="true"] {
-    color: #8A5A3B; font-weight: 700;
-    background: rgba(138, 90, 59, .10); border-radius: 8px 8px 0 0;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    border-color: transparent; color: #FFFFFF; font-weight: 700;
 }
 
 /* Hide Streamlit's menu, footer and branding. */
@@ -119,35 +133,59 @@ footer { visibility: hidden; }
 # Small line icons for the three start-screen cards (inline SVG so
 # the page needs no image files or emoji).
 _ICON_PLOT = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
               'stroke-linejoin="round"><path d="M3 11 12 4l9 7"/>'
               '<path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>')
 _ICON_PLAN = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
               'stroke-linejoin="round"><rect x="4" y="4" width="16" '
               'height="16" rx="1"/><path d="M4 12h16M12 12v8"/></svg>')
 _ICON_RENDER = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-                'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+                'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M12 4v11"/>'
                 '<path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>')
 _ICON_CHECK = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-               'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+               'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
                'stroke-linejoin="round"><circle cx="12" cy="12" r="8"/>'
                '<path d="M9 12l2 2 4-4"/></svg>')
 _ICON_IMAGE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-               'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+               'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
                'stroke-linejoin="round"><rect x="4" y="5" width="16" '
                'height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/>'
                '<path d="M4 17l5-4 4 3 3-2 4 3"/></svg>')
 _ICON_FILE = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
-              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
               'stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/>'
               '<path d="M14 3v4h4"/></svg>')
 _ICON_MIC = ('<svg width="44" height="44" viewBox="0 0 24 24" fill="none" '
-             'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+             'stroke="#FF6B4A" stroke-width="1.8" stroke-linecap="round" '
              'stroke-linejoin="round"><rect x="9" y="3" width="6" '
              'height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>'
              '<path d="M12 18v3"/></svg>')
+_ICON_MIC_WHITE = ('<svg width="34" height="34" viewBox="0 0 24 24" '
+                   'fill="none" stroke="#FFFFFF" stroke-width="1.8" '
+                   'stroke-linecap="round" stroke-linejoin="round">'
+                   '<rect x="9" y="3" width="6" height="11" rx="3"/>'
+                   '<path d="M5 11a7 7 0 0 0 14 0"/>'
+                   '<path d="M12 18v3"/></svg>')
+
+
+def _hero_img_tag():
+    """Landing hero <img> tag from assets/hero.png, or "" if missing.
+
+    The file is generated once with Muse Image and committed; the
+    page never calls the image service at load. A missing file still
+    leaves a clean gradient hero behind.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "assets", "hero.png")
+    try:
+        with open(path, "rb") as handle:
+            blob = base64.b64encode(handle.read()).decode("ascii")
+    except OSError:
+        return ""
+    return ('<img src="data:image/png;base64,%s" '
+            'alt="Modern family house">' % blob)
 
 
 # --- SaaS look: landing page + planner additions (loaded after _STYLE) ---
@@ -155,105 +193,137 @@ _ICON_MIC = ('<svg width="44" height="44" viewBox="0 0 24 24" fill="none" '
 # renames a selector.
 _STYLE_SAAS = """
 <style>
-/* Landing nav + hero. */
+/* Landing nav. */
 .hp-logo {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-    font-weight: 800; font-size: 1.25rem; color: #2B2B2B;
+    font-family: 'Poppins', 'Inter', sans-serif;
+    font-weight: 800; font-size: 1.25rem; color: #1F2937;
     margin: 0; padding-top: .45rem;
 }
-.hp-hero {
-    background: linear-gradient(180deg, #FAF8F5 0%, #EFEAE4 100%);
-    margin: -1rem -2rem 1.4rem -2rem; padding: 4rem 1.5rem 3.4rem 1.5rem;
-    text-align: center; border-radius: 0 0 16px 16px;
+
+/* Gradient hero: house image beside the headline (stacked on phones). */
+.hp-herox {
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    margin: -1rem -2rem 1.4rem -2rem; padding: 2.6rem 2.2rem;
+    border-radius: 0 0 22px 22px;
+    display: flex; gap: 2rem; align-items: center;
 }
-.hp-hero h1 {
-    font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 800;
-    color: #2B2B2B; margin: 0; line-height: 1.15;
+.hp-herox-img { flex: 0 0 42%; }
+.hp-herox-img img {
+    width: 100%; height: auto; display: block; border-radius: 16px;
+    border: 4px solid rgba(255, 255, 255, .85);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
 }
-.hp-hero p {
-    color: #5C564F; font-size: clamp(1rem, 2vw, 1.15rem);
-    max-width: 34rem; margin: 1rem auto 0 auto;
+.hp-herox-txt { flex: 1 1 auto; }
+.hp-pill {
+    display: inline-block; background: rgba(255, 255, 255, .22);
+    color: #FFFFFF; font-size: .78rem; font-weight: 600;
+    letter-spacing: .06em; text-transform: uppercase;
+    border-radius: 999px; padding: .3rem .9rem; margin: 0 0 .9rem 0;
 }
-.hp-note {
-    text-align: center; color: #6B6560; font-size: .85rem;
-    margin: .4rem 0 0 0;
+.hp-herox h1 {
+    font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 800;
+    color: #FFFFFF; margin: 0; line-height: 1.15;
+}
+.hp-herox p {
+    color: rgba(255, 255, 255, .92);
+    font-size: clamp(1rem, 2vw, 1.12rem); margin: .9rem 0 0 0;
+}
+@media (max-width: 640px) {
+    .hp-herox { flex-direction: column; padding: 2rem 1.4rem; }
+    .hp-herox-img { flex-basis: auto; width: 100%; }
+}
+.hp-arrow {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    color: #FFFFFF; font-size: 1.4rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
 }
 
 /* Landing sections + feature cards with hover lift. */
 .hp-section {
     text-align: center; font-size: 1.5rem; font-weight: 800;
-    color: #2B2B2B; margin: 2.6rem 0 1.2rem 0;
+    color: #1F2937; margin: 2.6rem 0 1.2rem 0;
 }
 .hp-feat {
-    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
     padding: 1.4rem 1.1rem; text-align: center;
-    box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .hp-feat:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 28px rgba(43, 43, 43, .12);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .10);
 }
 .hp-num {
     width: 2.2rem; height: 2.2rem; border-radius: 50%;
-    background: #8A5A3B; color: #FFFFFF; font-weight: 800;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    color: #FFFFFF; font-weight: 800;
     font-size: 1.05rem; display: flex; align-items: center;
     justify-content: center; margin: 0 auto .6rem auto;
 }
 
 /* Landing closing band + footer. */
 .hp-cta {
-    background: #2B2B2B; border-radius: 16px;
+    background: #1F2937; border-radius: 22px;
     margin: 2.6rem 0 1.2rem 0; padding: 2.6rem 1.5rem 2.2rem 1.5rem;
     text-align: center;
 }
-.hp-cta h2 { color: #FAF8F5; margin: 0; }
+.hp-cta h2 { color: #FFFFFF; margin: 0; }
 .hp-footer {
-    text-align: center; color: #6B6560; font-size: .8rem;
+    text-align: center; color: #6B7280; font-size: .8rem;
     margin: 0 0 1rem 0;
 }
 
-/* Big voice card + tall full-width recorder. */
+/* Big voice card + gradient round mic + tall full-width recorder. */
 .hp-voice {
-    background: #FAF8F5; border: 1px solid #EAE4DA; border-radius: 14px;
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
     padding: 1.2rem 1rem .9rem 1rem; text-align: center;
-    margin-bottom: .6rem;
+    margin-bottom: .6rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+}
+.hp-mic-btn {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto; box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
 }
 .hp-voice-title {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-    font-weight: 800; font-size: 1.1rem; color: #2B2B2B;
+    font-family: 'Poppins', 'Inter', sans-serif;
+    font-weight: 800; font-size: 1.1rem; color: #1F2937;
     margin: .5rem 0 .2rem 0;
 }
-.hp-voice-hint { color: #6B6560; font-size: .88rem; margin: 0; }
+.hp-voice-hint { color: #6B7280; font-size: .88rem; margin: 0; }
 [data-testid="stAudioInput"] { width: 100%; }
 [data-testid="stAudioInput"] button {
-    min-height: 56px; width: 100%; border-radius: 12px;
+    min-height: 56px; width: 100%; border-radius: 14px;
 }
 
-/* Rounded widgets + button hover everywhere. */
+/* Pill buttons with hover + rounded white inputs everywhere. */
 [data-testid="stBaseButton-primary"],
 [data-testid="stBaseButton-secondary"] {
-    border-radius: 12px; transition: all .15s ease;
+    border-radius: 999px; transition: all .15s ease;
 }
 [data-testid="stBaseButton-primary"]:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(138, 90, 59, .35);
+    box-shadow: 0 6px 16px rgba(255, 107, 74, .35);
 }
 [data-testid="stBaseButton-secondary"]:hover {
-    border-color: #8A5A3B; color: #8A5A3B;
+    border-color: #FF6B4A; color: #FF6B4A;
 }
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea {
-    border-radius: 12px;
+    border-radius: 14px; background-color: #FFFFFF;
+    border-color: #ECEEF2;
 }
 [data-testid="stExpander"] { border-radius: 12px; }
 
-/* Sidebar section labels: small bronze caps. */
+/* Sidebar: white panel, orange section labels. */
+[data-testid="stSidebarContent"] { background-color: #FFFFFF; }
 [data-testid="stSidebar"] h3 {
     font-family: 'Inter', sans-serif !important;
     font-size: .78rem !important; letter-spacing: .09em;
-    text-transform: uppercase; color: #8A5A3B !important;
+    text-transform: uppercase; color: #FF6B4A !important;
 }
 
 /* Transparent header: the sidebar toggle keeps working while the
@@ -725,18 +795,26 @@ if _SCREEN == "home":
     with nav_btn:
         nav_go = st.button("Start planning", key="nav_start",
                            type="primary", use_container_width=True)
-    # Hero: headline + sub + large button + free note.
+    # Hero: house image + label + headline, pill CTA below.
     st.markdown(
-        '<div class="hp-hero"><h1>Floor plans in seconds</h1>'
-        "<p>Enter your plot and family needs. Get three ready-to-review "
-        "layouts, a colored render and a DXF file.</p></div>",
+        '<div class="hp-herox">'
+        '<div class="hp-herox-img">%s</div>'
+        '<div class="hp-herox-txt">'
+        '<span class="hp-pill">Plan - Render - Download</span>'
+        "<h1>Design Your Home Smarter</h1>"
+        "<p>Enter your plot and family needs. Get three layouts, "
+        "a colored render and a DXF file.</p>"
+        "</div></div>" % _hero_img_tag(),
         unsafe_allow_html=True)
-    _hero_l, hero_c, _hero_r = st.columns([1, 1, 1])
-    with hero_c:
-        hero_go = st.button("Start planning", key="hero_start",
-                            type="primary", use_container_width=True)
-    st.markdown('<p class="hp-note">Free to try</p>',
-                unsafe_allow_html=True)
+    _cta_l, cta_mid, _cta_r = st.columns([1, 2, 1])
+    with cta_mid:
+        arrow_col, hero_btn_col = st.columns([1, 5])
+        with arrow_col:
+            st.markdown('<div class="hp-arrow">\u2192</div>',
+                        unsafe_allow_html=True)
+        with hero_btn_col:
+            hero_go = st.button("Start planning", key="hero_start",
+                                type="primary", use_container_width=True)
     # Feature cards.
     st.markdown('<h2 class="hp-section">Everything you need to review '
                 "a concept</h2>", unsafe_allow_html=True)
@@ -860,10 +938,10 @@ with st.sidebar:
     st.divider()
     st.subheader("Wishes")
     st.markdown(
-        '<div class="hp-voice">%s'
+        '<div class="hp-voice"><div class="hp-mic-btn">%s</div>'
         '<div class="hp-voice-title">Speak your brief</div>'
         '<p class="hp-voice-hint">Tap and talk - we\'ll type it '
-        "for you</p></div>" % _ICON_MIC, unsafe_allow_html=True)
+        "for you</p></div>" % _ICON_MIC_WHITE, unsafe_allow_html=True)
     voice_note = st.audio_input("Speak your brief (optional)",
                                 label_visibility="collapsed")
     if voice_note is not None:
