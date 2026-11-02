@@ -4,9 +4,15 @@
 # Run it with: streamlit run app.py
 # Then open the local address Streamlit prints (usually http://localhost:8501).
 
+import logging
+import re
+
 import streamlit as st
 
-import re
+st.set_page_config(layout="wide", page_title="House Planner",
+                   page_icon="🏠")
+
+logger = logging.getLogger("house_planner")
 
 from ai_program import format_ft_in, get_api_key, get_room_program
 from draw import svg_plan, svg_plot_preview
@@ -360,25 +366,58 @@ def _clear_results(state):
     for key in _RESULT_KEYS:
         state.pop(key, None)
 
-# --- Page title and short intro ---
-st.title("House Planner")
-st.write("A concept house planner for Bangladesh, built with an "
-         "architect's rules.")
-st.warning("Concept only - not for construction; consult a licensed "
-           "architect.")
-if st.button("Try an example"):
-    st.session_state["in_frontage"] = 40
-    st.session_state["in_depth"] = 60
-    st.session_state["in_north"] = 180
-    st.session_state["in_bedrooms"] = 3
-    st.session_state["in_toilets"] = "3"
-    st.rerun()
 
-# --- Input form: plot + bedrooms + toilets + wishes ---
-# Keep every input simple; plot numbers are in feet. The live preview
-# beside the inputs redraws on every change (Streamlit reruns).
-input_col, preview_col = st.columns([1, 1])
-with input_col:
+MAX_GENERATIONS = 10
+MAX_RENDERS = 5
+DEMO_LIMIT_MESSAGE = ("Demo limit reached - thanks for trying "
+                      "House Planner!")
+
+
+def _demo_used(state, key):
+    """How many of a limited demo action this session has used."""
+    try:
+        return max(int(state.get(key, 0) or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _demo_allowed(state, key, limit):
+    """True while the session still has quota left for the action."""
+    return _demo_used(state, key) < limit
+
+
+def _demo_bump(state, key):
+    """Record one completed demo action (counts only successes)."""
+    state[key] = _demo_used(state, key) + 1
+
+
+def _options_sentence(count):
+    """Grammar-clean 'Here are N layout options...' intro line."""
+    if count == 1:
+        head = "Here is 1 layout option for your brief."
+    else:
+        head = "Here are %d layout options for your brief." % count
+    return (head + " 'Needs review' means an architect should take "
+            "a second look - the reason is shown under that option.")
+
+# --- Header: title + tagline + small concept note (always visible) ---
+st.title("House Planner")
+st.write("A concept house planner for Bangladesh, built on an "
+         "architect's rules.")
+st.caption("Concept only - not for construction")
+
+# --- Sidebar: EVERY input lives here ---
+# Keep every input simple; plot numbers are in feet. The small plot
+# preview redraws on every change (Streamlit reruns the page).
+with st.sidebar:
+    st.header("Your plot and family")
+    if st.button("Try an example"):
+        st.session_state["in_frontage"] = 40
+        st.session_state["in_depth"] = 60
+        st.session_state["in_north"] = 180
+        st.session_state["in_bedrooms"] = 3
+        st.session_state["in_toilets"] = "3"
+        st.rerun()
     frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40, key="in_frontage")
     depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60, key="in_depth")
     north_angle = st.slider(
@@ -389,6 +428,8 @@ with input_col:
     )
     road_side = _closest_road(north_angle)
     st.caption("Road on the %s side." % road_side.capitalize())
+    st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
+                unsafe_allow_html=True)
     num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
                                    max_value=10, value=3, key="in_bedrooms")
     # Toilets: NO default on purpose. The field starts empty and the
@@ -420,17 +461,15 @@ with input_col:
         placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
         key="in_wishes",
     )
-with preview_col:
-    st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
-                unsafe_allow_html=True)
+    generate_pressed = st.button("Generate plans", type="primary")
 
 _signature = _brief_signature(frontage_ft, depth_ft, north_angle,
                               num_bedrooms, toilets_text, wishes)
 if _results_stale(st.session_state, _signature):
     _clear_results(st.session_state)
 
-# --- Button: ask the AI, then show results ---
-if st.button("Generate plans"):
+# --- Generate: ask the AI, then store results in session state ---
+if generate_pressed:
     # Toilets are required: stop with a clear message when empty/invalid.
     if not toilets_text.strip():
         st.error("Please enter the number of toilets (1 to %d) before generating." % max_toilets)
@@ -442,6 +481,12 @@ if st.button("Generate plans"):
         st.stop()
     if not 1 <= num_toilets <= max_toilets:
         st.error("Number of toilets must be from 1 to %d (bedrooms + 1)." % max_toilets)
+        st.stop()
+
+    # Demo guard: at most 10 plan generations per browser session.
+    if not _demo_allowed(st.session_state, "generations_used",
+                         MAX_GENERATIONS):
+        st.info(DEMO_LIMIT_MESSAGE)
         st.stop()
 
     if not get_api_key():
@@ -473,137 +518,89 @@ if st.button("Generate plans"):
             st.stop()
     _remember_results(st.session_state, _signature, result,
                         options_result)
+    _demo_bump(st.session_state, "generations_used")
 
 if _has_results(st.session_state):
     result = st.session_state["result_program"]
     options_result = st.session_state["result_options"]
-    # 1. Rooms as a table (sizes in feet and inches).
-    st.subheader("Rooms")
+    # Placer notes go to the log now, never on the page.
+    for item in options_result["notes"]:
+        logger.info("placer note: %s", item)
     rooms = result["rooms"]
-    if rooms:
-        st.table(_rooms_for_table(rooms))
-    else:
-        st.warning("The AI returned no rooms. Try again with simpler wishes.")
-
-    # 2. Design explanation in the architect's voice.
-    st.subheader("Design explanation")
-    st.write(result["design_explanation"] or "No explanation returned.")
-
-    # 3. Space check: do the rooms fit on the plot?
-    st.subheader("Space check")
-    buildable = result["buildable"]
-    area = result["program_area"]
-    st.write(
-        f"Buildable after setbacks: {buildable['area']:.0f} sq ft "
-        f"({format_ft_in(buildable['width'])} x {format_ft_in(buildable['depth'])})."
-    )
-    st.write(
-        f"Your rooms: rooms {area['net']:.0f} + interior walls {area['interior_walls']:.0f} "
-        f"+ exterior walls {area['exterior_walls']:.0f} = {area['total']:.0f} sq ft "
-        f"(corridors {area['circulation']:.0f} sq ft of the rooms)."
-    )
-    if result["revised"] and not result["area_warning"]:
-        st.info("The first draft was too big, so the rooms were shrunk to fit.")
-    if result["area_warning"]:
-        st.warning(result["area_warning"])
-    else:
-        st.success("Your rooms fit inside the buildable area.")
-
-    # 4. Room sizes.
-    st.subheader("Room sizes")
-    problems = result["size_problems"]
-    if not problems:
-        st.success("All room sizes look good.")
-    else:
-        st.warning("Some rooms need attention:")
-        for item in problems:
-            st.write("- " + item)
-
-    # 5. Toilets.
-    st.subheader("Toilets")
-    toilet_problems = result["toilet_problems"]
-    if not toilet_problems:
-        st.success("The toilet arrangement looks good.")
-    else:
-        st.warning("The toilets need attention:")
-        for item in toilet_problems:
-            st.write("- " + item)
-
-    # 6. Floor plan options: place rooms (plain Python), draw each SVG.
-    st.subheader("Floor plan options")
     options = options_result["options"]
-    with st.expander("Technical notes"):
-        for item in options_result["notes"]:
-            st.write("- " + item)
     if not options:
         st.warning("No option fits this plot; try a bigger plot or fewer rooms.")
         st.stop()
     plot = options_result["plot"]
-    st.write(
-        "Here are %d layout option(s) for your brief. 'Needs review' "
-        "means an architect should take a second look - the reason "
-        "is shown under that option." % len(options)
-    )
-    columns = st.columns(len(options))
-    for column, opt in zip(columns, options):
-        with column:
-            st.markdown("### Option %s" % opt["label"])
-            st.write(_plain_title(opt))
-            if opt["livable"]:
-                st.success("All key rules met")
-            else:
-                st.warning("Needs review")
-                for sentence in _friendly_issues(opt):
-                    st.write(sentence)
-            wishes_line = _wishes_line(opt)
-            if wishes_line:
-                st.write(wishes_line)
-            for note in _design_notes(opt):
-                st.write("- " + note)
+    st.write(_options_sentence(len(options)))
+    if len(options) == 2:
+        st.info("Two layouts fit this plot shape.")
+    # PLANS FIRST: one tab per option; the plan draws LARGE on the
+    # left (two thirds) with a narrow info panel on the right.
+    tabs = st.tabs(["Option %s" % opt["label"] for opt in options])
+    for tab, opt in zip(tabs, options):
+        with tab:
+            plan_col, side_col = st.columns([2, 1])
             cache = st.session_state.setdefault("plan_renders", {})
             notes = st.session_state.setdefault("plan_render_notes",
                                                 {})
-            extra = st.text_input(
-                "Extra instructions for the render (e.g. marble tiles "
-                "in living, bed against the north wall, plants on "
-                "verandas)",
-                key="extra_%s" % opt["label"])
-            plan_key = "%s|%s|%d|%d" % (
-                opt["label"], opt["title"],
-                hash(repr(opt["placements"])), hash(extra or ""))
-            if plan_key in cache:
-                want_render = st.button(
-                    "Regenerate", key="regen_%s" % opt["label"])
-            else:
-                want_render = st.button(
-                    "Render this plan",
-                    key="render_%s" % opt["label"])
-            if want_render:
-                with st.spinner("Making a presentation render of "
-                                "this plan..."):
-                    try:
-                        png, note = _render_option_plan(
-                            plot, opt, extra or "")
-                    except Exception as err:
-                        _show_error("Could not render this plan.",
-                                    err)
+            with side_col:
+                st.write(_plain_title(opt))
+                if opt["livable"]:
+                    st.success("All key rules met")
+                else:
+                    st.warning("Needs review")
+                    for sentence in _friendly_issues(opt):
+                        st.write(sentence)
+                wishes_line = _wishes_line(opt)
+                if wishes_line:
+                    st.write(wishes_line)
+                for note in _design_notes(opt):
+                    st.write("- " + note)
+                with st.expander("Render options"):
+                    extra = st.text_input(
+                        "Extra instructions for the render",
+                        key="extra_%s" % opt["label"],
+                        placeholder="e.g. marble tiles in living, plants "
+                                    "on verandas")
+                plan_key = "%s|%s|%d|%d" % (
+                    opt["label"], opt["title"],
+                    hash(repr(opt["placements"])), hash(extra or ""))
+                if plan_key in cache:
+                    want_render = st.button(
+                        "Regenerate", key="regen_%s" % opt["label"])
+                else:
+                    want_render = st.button(
+                        "Render this plan",
+                        key="render_%s" % opt["label"])
+                if want_render:
+                    # Demo guard: at most 5 renders per browser session.
+                    if not _demo_allowed(st.session_state, "renders_used",
+                                         MAX_RENDERS):
+                        st.info(DEMO_LIMIT_MESSAGE)
                     else:
-                        cache[plan_key] = png
-                        notes[plan_key] = note
-            if plan_key in cache:
-                left, right = st.columns(2)
-                with left:
-                    st.markdown(_svg_for_option(plot, opt),
-                                unsafe_allow_html=True)
-                    st.caption("Your plan")
-                    st.download_button(
-                        "Download DXF",
-                        data=_dxf_for_option(plot, opt),
-                        file_name="house_plan_option_%s.dxf"
-                                  % opt["label"],
-                        mime="image/vnd.dxf",
-                        key="dxf_%s_rendered" % opt["label"])
-                with right:
+                        with st.spinner("Making a presentation render of "
+                                        "this plan..."):
+                            try:
+                                png, note = _render_option_plan(
+                                    plot, opt, extra or "")
+                            except Exception as err:
+                                _show_error("Could not render this plan.",
+                                            err)
+                            else:
+                                cache[plan_key] = png
+                                notes[plan_key] = note
+                                _demo_bump(st.session_state, "renders_used")
+                st.download_button(
+                    "Download DXF",
+                    data=_dxf_for_option(plot, opt),
+                    file_name="house_plan_option_%s.dxf" % opt["label"],
+                    mime="image/vnd.dxf",
+                    key="dxf_%s" % opt["label"])
+            with plan_col:
+                st.markdown(_svg_for_option(plot, opt),
+                            unsafe_allow_html=True)
+                if plan_key in cache:
                     st.image(
                         cache[plan_key],
                         caption="AI renders are experimental and may "
@@ -612,29 +609,81 @@ if _has_results(st.session_state):
                                 "check the render against it.")
                     if notes.get(plan_key):
                         st.caption(notes[plan_key])
-            else:
-                st.markdown(_svg_for_option(plot, opt),
-                            unsafe_allow_html=True)
-                st.download_button(
-                    "Download DXF",
-                    data=_dxf_for_option(plot, opt),
-                    file_name="house_plan_option_%s.dxf" % opt["label"],
-                    mime="image/vnd.dxf",
-                    key="dxf_%s" % opt["label"])
+    # ONE collapsed expander with everything else, for one option.
+    with st.expander("Plan details"):
+        labels = [opt["label"] for opt in options]
+        picked = st.radio("Details for option", labels, horizontal=True,
+                          key="details_option")
+        detail = {opt["label"]: opt for opt in options}[picked]
+        # 1. Rooms as a table (sizes in feet and inches).
+        st.subheader("Rooms")
+        if rooms:
+            st.table(_rooms_for_table(rooms))
+        else:
+            st.warning("The AI returned no rooms. Try again with simpler wishes.")
 
-    if len(options) == 2:
-        st.info("Two layouts fit this plot shape.")
-    # 7. Per-option architect's checklist (plain names, no numbers).
-    for opt in options:
-        with st.expander("Option %s: Architect's checklist"
-                         % opt["label"]):
-            st.markdown(_svg_for_option(plot, opt), unsafe_allow_html=True)
-            st.table(_checklist_rows(opt))
-            if opt["wishes"]:
-                st.table([
-                    {"Your wish": row["wish"],
-                     "Result": _WISH_RESULT.get(row["status"],
-                                               row["status"])}
-                    for row in opt["wishes"]
-                ])
+        # 2. Design explanation in the architect's voice.
+        st.subheader("Design explanation")
+        st.write(result["design_explanation"] or "No explanation returned.")
+
+        # 3. Space check: do the rooms fit on the plot?
+        st.subheader("Space check")
+        buildable = result["buildable"]
+        area = result["program_area"]
+        st.write(
+            f"Buildable after setbacks: {buildable['area']:.0f} sq ft "
+            f"({format_ft_in(buildable['width'])} x {format_ft_in(buildable['depth'])})."
+        )
+        st.write(
+            f"Your rooms: rooms {area['net']:.0f} + interior walls {area['interior_walls']:.0f} "
+            f"+ exterior walls {area['exterior_walls']:.0f} = {area['total']:.0f} sq ft "
+            f"(corridors {area['circulation']:.0f} sq ft of the rooms)."
+        )
+        if result["revised"] and not result["area_warning"]:
+            st.info("The first draft was too big, so the rooms were shrunk to fit.")
+        if result["area_warning"]:
+            st.warning(result["area_warning"])
+        else:
+            st.success("Your rooms fit inside the buildable area.")
+
+        # 4. Room sizes.
+        st.subheader("Room sizes")
+        problems = result["size_problems"]
+        if not problems:
+            st.success("All room sizes look good.")
+        else:
+            st.warning("Some rooms need attention:")
+            for item in problems:
+                st.write("- " + item)
+
+        # 5. Toilets.
+        st.subheader("Toilets")
+        toilet_problems = result["toilet_problems"]
+        if not toilet_problems:
+            st.success("The toilet arrangement looks good.")
+        else:
+            st.warning("The toilets need attention:")
+            for item in toilet_problems:
+                st.write("- " + item)
+
+        # 6. Architect's checklist for the picked option (plain names).
+        st.subheader("Option %s: Architect's checklist" % picked)
+        st.table(_checklist_rows(detail))
+        if detail["wishes"]:
+            st.table([
+                {"Your wish": row["wish"],
+                 "Result": _WISH_RESULT.get(row["status"],
+                                           row["status"])}
+                for row in detail["wishes"]
+            ])
     st.caption("Concept only - not for construction; consult a licensed architect.")
+else:
+    # Before generating: a short 3-step "How it works" row.
+    st.subheader("How it works")
+    step1, step2, step3 = st.columns(3)
+    with step1:
+        st.write("1. Describe your plot and family")
+    with step2:
+        st.write("2. Get 3 plan options")
+    with step3:
+        st.write("3. Download or render")

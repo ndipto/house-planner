@@ -36,12 +36,15 @@ pushed to GitHub, and your Meta Model API key. Takes about 10 minutes.
 
 ## 3. Check it works
 
-1. Open the app link, fill any brief (or press **Try an example**),
-   enter toilets, press **Generate room program**.
-2. You should see the rooms table plus options A/B/C with drawings.
-3. Press **Generate exterior concept** under one option: an AI street
-   view appears. If it fails, the app shows a friendly message -
-   re-check step 2 (usually a typo in the key or extra spaces).
+1. Open the app link, fill any brief in the sidebar (or press
+   **Try an example**), enter toilets, press **Generate plans**.
+2. You should see tabs for options A/B/C, each with a large plan
+   drawing plus a narrow side panel; rooms, explanation and the
+   checklist sit under the collapsed **Plan details** expander.
+3. Press **Render this plan** under one option: an AI top-down
+   render appears below the plan. If it fails, the app shows a
+   friendly message - re-check step 2 (usually a typo in the key
+   or extra spaces).
 
 ## Notes
 

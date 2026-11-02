@@ -909,6 +909,41 @@ def test_session_state_helpers():
     print("PASS test_session_state_helpers")
 
 
+def test_demo_limits_and_options_sentence():
+    """Demo guards: 10 generations + 5 renders a session, clean grammar.
+
+    (Plain-dict test like test_session_state_helpers: the Streamlit
+    page calls the same helpers with st.session_state.)
+    """
+    import app
+
+    assert app.MAX_GENERATIONS == 10, "10 generations per session"
+    assert app.MAX_RENDERS == 5, "5 renders per session"
+    assert "Demo limit reached" in app.DEMO_LIMIT_MESSAGE, \
+        "friendly limit message"
+    state = {}
+    assert app._demo_allowed(state, "generations_used",
+                             app.MAX_GENERATIONS) is True, "fresh session"
+    for _ in range(10):
+        assert app._demo_allowed(state, "generations_used",
+                                 app.MAX_GENERATIONS) is True, "quota left"
+        app._demo_bump(state, "generations_used")
+    assert app._demo_allowed(state, "generations_used",
+                             app.MAX_GENERATIONS) is False, \
+        "the 10 used block an 11th"
+    renders = {}
+    for _ in range(5):
+        app._demo_bump(renders, "renders_used")
+    assert app._demo_allowed(renders, "renders_used",
+                             app.MAX_RENDERS) is False, "5 renders max"
+    three = app._options_sentence(3)
+    assert three.startswith("Here are 3 layout options"), three
+    assert "option(s)" not in three, "no option(s) leftover"
+    one = app._options_sentence(1)
+    assert one.startswith("Here is 1 layout option "), one
+    print("PASS test_demo_limits_and_options_sentence")
+
+
 def test_master_swap_helper():
     """_try_master_swap: largest takes the master name, baths follow."""
     rects = [
@@ -1473,6 +1508,7 @@ if __name__ == "__main__":
     test_friendly_issue_sentences()
     test_master_swap_helper()
     test_session_state_helpers()
+    test_demo_limits_and_options_sentence()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()
