@@ -162,14 +162,6 @@ _ICON_MIC = ('<svg width="44" height="44" viewBox="0 0 24 24" fill="none" '
              'stroke-linejoin="round"><rect x="9" y="3" width="6" '
              'height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/>'
              '<path d="M12 18v3"/></svg>')
-_ICON_MIC_WHITE = ('<svg width="34" height="34" viewBox="0 0 24 24" '
-                   'fill="none" stroke="#FFFFFF" stroke-width="1.8" '
-                   'stroke-linecap="round" stroke-linejoin="round">'
-                   '<rect x="9" y="3" width="6" height="11" rx="3"/>'
-                   '<path d="M5 11a7 7 0 0 0 14 0"/>'
-                   '<path d="M12 18v3"/></svg>')
-
-
 def _hero_img_tag():
     """Landing hero <img> tag from assets/hero.png, or "" if missing.
 
@@ -235,28 +227,30 @@ _STYLE_SAAS = """
     margin: 1.2rem 0 0 0;
 }
 
-/* Big voice card + gradient round mic + tall full-width recorder. */
+/* Voice card: title + hint on top, the REAL recorder joined below
+   as one card, so the only mic-looking control is the live one. */
 .hp-voice {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
+    background: #FFFFFF; border: 1px solid #ECEEF2;
+    border-bottom: none; border-radius: 22px 22px 0 0;
     padding: 1.2rem 1rem .9rem 1rem; text-align: center;
-    margin-bottom: .6rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
-}
-.hp-mic-btn {
-    width: 72px; height: 72px; border-radius: 50%;
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto; box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+    margin-bottom: 0;
 }
 .hp-voice-title {
     font-family: 'Poppins', 'Inter', sans-serif;
     font-weight: 800; font-size: 1.1rem; color: #1F2937;
-    margin: .5rem 0 .2rem 0;
+    margin: 0 0 .2rem 0;
 }
 .hp-voice-hint { color: #6B7280; font-size: .88rem; margin: 0; }
-[data-testid="stAudioInput"] { width: 100%; }
-[data-testid="stAudioInput"] button {
-    min-height: 56px; width: 100%; border-radius: 14px;
+[data-testid="stAudioInput"] {
+    width: 100%; background: #FFFFFF; border: 1px solid #ECEEF2;
+    border-top: none; border-radius: 0 0 22px 22px;
+    padding: .9rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
 }
+[data-testid="stAudioInput"] button {
+    min-height: 64px; width: 100%; border-radius: 14px;
+    border: 1.5px solid #FF6B4A;
+}
+[data-testid="stAudioInput"] svg { width: 28px; height: 28px; }
 
 /* Pill buttons with hover + rounded white inputs everywhere. */
 [data-testid="stBaseButton-primary"],
@@ -836,11 +830,9 @@ if _SCREEN == "home":
     st.stop()
 
 # --- Planner screen: back link + header band + sidebar + results ---
-back_col, _back_spacer = st.columns([1, 5])
-with back_col:
-    if st.button("\u2190 Back to home", key="back_home"):
-        st.session_state["screen"] = "home"
-        st.rerun()
+if st.button("\u2190 Back to home", key="back_home"):
+    st.session_state["screen"] = "home"
+    st.rerun()
 st.markdown(
     '<div class="hp-band">'
     "<h1>House Planner</h1>"
@@ -894,10 +886,10 @@ with st.sidebar:
     st.divider()
     st.subheader("Wishes")
     st.markdown(
-        '<div class="hp-voice"><div class="hp-mic-btn">%s</div>'
+        '<div class="hp-voice">'
         '<div class="hp-voice-title">Speak your brief</div>'
         '<p class="hp-voice-hint">Tap and talk - we\'ll type it '
-        "for you</p></div>" % _ICON_MIC_WHITE, unsafe_allow_html=True)
+        "for you</p></div>", unsafe_allow_html=True)
     voice_note = st.audio_input("Speak your brief (optional)",
                                 label_visibility="collapsed")
     if voice_note is not None:
@@ -1065,6 +1057,7 @@ if _has_results(st.session_state):
                                 cache[plan_key] = png
                                 notes[plan_key] = note
                                 _demo_bump(st.session_state, "renders_used")
+                                st.rerun()
                 st.download_button(
                     "Download DXF",
                     data=_dxf_for_option(plot, opt),
