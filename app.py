@@ -5,6 +5,7 @@
 # Then open the local address Streamlit prints (usually http://localhost:8501).
 
 import logging
+import os
 import re
 
 import streamlit as st
@@ -21,6 +22,130 @@ from layout import _closest_road
 from plan_render import render_plan_checked
 from typology import build_options
 from voice import transcribe_audio
+
+
+# --- Demo look: one CSS block for the whole page ---
+# DM Serif Display for headings, Inter for everything else; bronze
+# (#8A5A3B) accents on dark (#2B2B2B). Purely visual: if Streamlit
+# ever renames a selector below, the page just falls back to its
+# default look instead of breaking.
+_STYLE = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
+
+[data-testid="stAppViewContainer"] {
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+}
+h1, h2, h3 {
+    font-family: 'DM Serif Display', Georgia, serif !important;
+}
+
+/* Dark header band with a thin bronze accent line. */
+[data-testid="stMainBlockContainer"] { padding-top: 1rem; }
+.hp-band {
+    background: #2B2B2B;
+    border-bottom: 3px solid #8A5A3B;
+    border-radius: 0 0 14px 14px;
+    margin: -1rem -2rem 1.6rem -2rem;
+    padding: 2.2rem 2rem 1.6rem 2rem;
+}
+.hp-band h1 {
+    font-size: 2.7rem; font-weight: 400; color: #FAF8F5;
+    margin: 0; line-height: 1.1;
+}
+.hp-band p { color: #D8D0C4; font-size: 1.02rem; margin: .45rem 0 0 0; }
+.hp-band .hp-concept { font-size: .8rem; color: #A79E90; margin-top: .5rem; }
+
+/* Start-screen step cards + example plan. */
+.hp-step {
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.4rem 1.1rem; text-align: center;
+    box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+}
+.hp-step-title {
+    font-weight: 700; font-size: 1.05rem; color: #2B2B2B;
+    margin: .6rem 0 .25rem 0;
+}
+.hp-step-text { color: #6B6560; font-size: .9rem; margin: 0; }
+.hp-example {
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.2rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .08);
+    margin-top: 1.4rem;
+}
+.hp-example svg { width: 100%; height: auto; display: block; }
+.hp-caption {
+    text-align: center; color: #6B6560; font-size: .85rem;
+    margin: .5rem 0 0 0;
+}
+
+/* Result cards: the plan and its side panel. */
+[data-testid="stTabContent"] div[data-testid="column"] {
+    background: #FFFFFF; border: 1px solid #EAE4DA; border-radius: 14px;
+    padding: 1.4rem; box-shadow: 0 6px 22px rgba(43, 43, 43, .10);
+}
+.hp-option-title {
+    font-size: 1.35rem; font-weight: 700; color: #2B2B2B;
+    margin: 0 0 .5rem 0;
+}
+
+/* Bronze filled primary buttons; outlined DXF download. */
+[data-testid="stBaseButton-primary"] {
+    background-color: #8A5A3B; border-color: #8A5A3B;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    background-color: #74492F; border-color: #74492F;
+}
+div[data-testid="stDownloadButton"] button {
+    border: 1px solid #8A5A3B; color: #8A5A3B; background: transparent;
+}
+div[data-testid="stDownloadButton"] button:hover {
+    border-color: #8A5A3B; color: #74492F;
+    background: rgba(138, 90, 59, .08);
+}
+
+/* Selected option tab in bronze with a bold label. */
+button[data-testid="stTab"][aria-selected="true"] {
+    color: #8A5A3B; font-weight: 700;
+    background: rgba(138, 90, 59, .10); border-radius: 8px 8px 0 0;
+}
+
+/* Hide Streamlit's menu, footer and branding. */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+[data-testid="stDecoration"] { display: none; }
+</style>
+"""
+
+# Small line icons for the three start-screen cards (inline SVG so
+# the page needs no image files or emoji).
+_ICON_PLOT = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke-linejoin="round"><path d="M3 11 12 4l9 7"/>'
+              '<path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>')
+_ICON_PLAN = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+              'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke-linejoin="round"><rect x="4" y="4" width="16" '
+              'height="16" rx="1"/><path d="M4 12h16M12 12v8"/></svg>')
+_ICON_RENDER = ('<svg width="30" height="30" viewBox="0 0 24 24" fill="none" '
+                'stroke="#8A5A3B" stroke-width="1.8" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M12 4v11"/>'
+                '<path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>')
+
+
+def _example_svg():
+    """One saved review plan for the start screen, or "" if missing.
+
+    Reads a committed review SVG (display only; the drawing code in
+    draw.py is untouched). A missing file hides the example instead
+    of breaking the page.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "review", "T1_40x60_North_A_OK.svg")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return ""
 
 
 def _render_option_plan(plot, option, extra=""):
@@ -289,6 +414,21 @@ def _checklist_rows(opt):
     return rows
 
 
+def _why_it_works(opt):
+    """Checklist rows as short plain sentences (no ticks or scores)."""
+    sentences = []
+    for row in _checklist_rows(opt):
+        if row["Result"] == "Met":
+            sentences.append("%s." % row["Check"])
+        elif row["Result"] == "Partly":
+            sentences.append("%s - partly, worth a second look."
+                             % row["Check"])
+        else:
+            sentences.append("%s - needs an architect's review."
+                             % row["Check"])
+    return sentences
+
+
 _FRIENDLY_RULE = {
     "4": "Kitchen door does not open into dining",
     "5": "A bedroom door does not open into family living or dining",
@@ -400,17 +540,20 @@ def _options_sentence(count):
     return (head + " 'Needs review' means an architect should take "
             "a second look - the reason is shown under that option.")
 
-# --- Header: title + tagline + small concept note (always visible) ---
-st.title("House Planner")
-st.write("A concept house planner for Bangladesh, built on an "
-         "architect's rules.")
-st.caption("Concept only - not for construction")
+# --- Header band: dark, full-width, serif title (always visible) ---
+st.markdown(_STYLE, unsafe_allow_html=True)
+st.markdown(
+    '<div class="hp-band">'
+    "<h1>House Planner</h1>"
+    "<p>Concept floor plans in seconds</p>"
+    '<p class="hp-concept">Concept only - not for construction</p>'
+    "</div>",
+    unsafe_allow_html=True)
 
 # --- Sidebar: EVERY input lives here ---
 # Keep every input simple; plot numbers are in feet. The small plot
 # preview redraws on every change (Streamlit reruns the page).
 with st.sidebar:
-    st.header("Your plot and family")
     if st.button("Try an example"):
         st.session_state["in_frontage"] = 40
         st.session_state["in_depth"] = 60
@@ -418,6 +561,7 @@ with st.sidebar:
         st.session_state["in_bedrooms"] = 3
         st.session_state["in_toilets"] = "3"
         st.rerun()
+    st.subheader("Plot")
     frontage_ft = st.number_input("Road frontage (ft)", min_value=10, value=40, key="in_frontage")
     depth_ft = st.number_input("Plot depth from road (ft)", min_value=10, value=60, key="in_depth")
     north_angle = st.slider(
@@ -430,6 +574,8 @@ with st.sidebar:
     st.caption("Road on the %s side." % road_side.capitalize())
     st.markdown(svg_plot_preview(frontage_ft, depth_ft, north_angle),
                 unsafe_allow_html=True)
+    st.divider()
+    st.subheader("Family")
     num_bedrooms = st.number_input("Number of bedrooms", min_value=1,
                                    max_value=10, value=3, key="in_bedrooms")
     # Toilets: NO default on purpose. The field starts empty and the
@@ -440,6 +586,8 @@ with st.sidebar:
         value="", key="in_toilets",
         placeholder=f"Required: whole number from 1 to {max_toilets}",
     )
+    st.divider()
+    st.subheader("Wishes")
     voice_note = st.audio_input("Speak your brief (optional, Bangla or English)")
     if voice_note is not None:
         # New recording only: transcribe once, then fill the wishes box
@@ -461,7 +609,8 @@ with st.sidebar:
         placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
         key="in_wishes",
     )
-    generate_pressed = st.button("Generate plans", type="primary")
+    generate_pressed = st.button("Generate plans", type="primary",
+                                        use_container_width=True)
 
 _signature = _brief_signature(frontage_ft, depth_ft, north_angle,
                               num_bedrooms, toilets_text, wishes)
@@ -545,7 +694,8 @@ if _has_results(st.session_state):
             notes = st.session_state.setdefault("plan_render_notes",
                                                 {})
             with side_col:
-                st.write(_plain_title(opt))
+                st.markdown('<p class="hp-option-title">%s</p>'
+                            % _plain_title(opt), unsafe_allow_html=True)
                 if opt["livable"]:
                     st.success("All key rules met")
                 else:
@@ -568,11 +718,13 @@ if _has_results(st.session_state):
                     hash(repr(opt["placements"])), hash(extra or ""))
                 if plan_key in cache:
                     want_render = st.button(
-                        "Regenerate", key="regen_%s" % opt["label"])
+                        "Regenerate", key="regen_%s" % opt["label"],
+                        type="primary", use_container_width=True)
                 else:
                     want_render = st.button(
                         "Render this plan",
-                        key="render_%s" % opt["label"])
+                        key="render_%s" % opt["label"],
+                        type="primary", use_container_width=True)
                 if want_render:
                     # Demo guard: at most 5 renders per browser session.
                     if not _demo_allowed(st.session_state, "renders_used",
@@ -596,7 +748,8 @@ if _has_results(st.session_state):
                     data=_dxf_for_option(plot, opt),
                     file_name="house_plan_option_%s.dxf" % opt["label"],
                     mime="image/vnd.dxf",
-                    key="dxf_%s" % opt["label"])
+                    key="dxf_%s" % opt["label"],
+                    use_container_width=True)
             with plan_col:
                 st.markdown(_svg_for_option(plot, opt),
                             unsafe_allow_html=True)
@@ -666,9 +819,10 @@ if _has_results(st.session_state):
             for item in toilet_problems:
                 st.write("- " + item)
 
-        # 6. Architect's checklist for the picked option (plain names).
-        st.subheader("Option %s: Architect's checklist" % picked)
-        st.table(_checklist_rows(detail))
+        # 6. Why this plan works: short plain sentences, no ticks.
+        st.subheader("Why this plan works")
+        for sentence in _why_it_works(detail):
+            st.write(sentence)
         if detail["wishes"]:
             st.table([
                 {"Your wish": row["wish"],
@@ -678,12 +832,30 @@ if _has_results(st.session_state):
             ])
     st.caption("Concept only - not for construction; consult a licensed architect.")
 else:
-    # Before generating: a short 3-step "How it works" row.
-    st.subheader("How it works")
+    # Before generating: three clean step cards + one example plan.
     step1, step2, step3 = st.columns(3)
     with step1:
-        st.write("1. Describe your plot and family")
+        st.markdown(
+            '<div class="hp-step">%s'
+            '<div class="hp-step-title">Describe your plot</div>'
+            '<p class="hp-step-text">Plot size, road side and family</p>'
+            "</div>" % _ICON_PLOT, unsafe_allow_html=True)
     with step2:
-        st.write("2. Get 3 plan options")
+        st.markdown(
+            '<div class="hp-step">%s'
+            '<div class="hp-step-title">Get 3 plan options</div>'
+            '<p class="hp-step-text">Three layouts from an '
+            "architect's rules</p>"
+            "</div>" % _ICON_PLAN, unsafe_allow_html=True)
     with step3:
-        st.write("3. Download or render")
+        st.markdown(
+            '<div class="hp-step">%s'
+            '<div class="hp-step-title">Render or download</div>'
+            '<p class="hp-step-text">Colored render or DXF file</p>'
+            "</div>" % _ICON_RENDER, unsafe_allow_html=True)
+    example = _example_svg()
+    if example:
+        st.markdown('<div class="hp-example">' + example + "</div>",
+                    unsafe_allow_html=True)
+        st.markdown('<p class="hp-caption">Example result</p>',
+                    unsafe_allow_html=True)

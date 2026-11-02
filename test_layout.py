@@ -944,6 +944,27 @@ def test_demo_limits_and_options_sentence():
     print("PASS test_demo_limits_and_options_sentence")
 
 
+def test_why_it_works_sentences():
+    """'Why this plan works' renders as plain sentences, no ticks."""
+    import app
+
+    opt = {"rules": [{"id": "1", "name": "sizes", "status": "PASS"},
+                     {"id": "4", "name": "kitchen", "status": "FAIL"}],
+           "goals": [{"name": "Good entry (porch + foyer)",
+                      "status": "BEND"}]}
+    sentences = app._why_it_works(opt)
+    assert sentences[0] == "Room sizes feel right.", sentences
+    assert sentences[1] == ("Kitchen opens into dining - needs an "
+                            "architect's review."), sentences
+    assert sentences[2] == ("Welcoming entry with porch - partly, worth "
+                            "a second look."), sentences
+    joined = " ".join(sentences)
+    for token in ("PASS", "FAIL", "BEND", "Met", "Not met", "Partly",
+                  "rule 1", "rule 4"):
+        assert token not in joined, token
+    print("PASS test_why_it_works_sentences")
+
+
 def test_master_swap_helper():
     """_try_master_swap: largest takes the master name, baths follow."""
     rects = [
@@ -1509,6 +1530,7 @@ if __name__ == "__main__":
     test_master_swap_helper()
     test_session_state_helpers()
     test_demo_limits_and_options_sentence()
+    test_why_it_works_sentences()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()
