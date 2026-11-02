@@ -81,7 +81,7 @@ h1, h2, h3 {
 }
 
 /* Orange icon tiles inside cards. */
-.hp-step > svg, .hp-feat > svg {
+.hp-step > svg {
     width: 44px; height: 44px; padding: 9px; box-sizing: border-box;
     background: #FFF1EA; border-radius: 14px;
 }
@@ -200,79 +200,39 @@ _STYLE_SAAS = """
     margin: 0; padding-top: .45rem;
 }
 
-/* Gradient hero: house image beside the headline (stacked on phones). */
-.hp-herox {
+/* One-screen landing: text left, image right (stacked on phones). */
+.hp-screen {
+    display: flex; gap: 2.5rem; align-items: center;
+}
+.hp-screen-txt { flex: 1 1 auto; }
+.hp-pill-solid {
+    display: inline-block; color: #FFFFFF;
     background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    margin: -1rem -2rem 1.4rem -2rem; padding: 2.6rem 2.2rem;
-    border-radius: 0 0 22px 22px;
-    display: flex; gap: 2rem; align-items: center;
+    font-size: .78rem; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; border-radius: 999px;
+    padding: .3rem .9rem; margin: 0 0 .9rem 0;
 }
-.hp-herox-img { flex: 0 0 42%; }
-.hp-herox-img img {
-    width: 100%; height: auto; display: block; border-radius: 16px;
-    border: 4px solid rgba(255, 255, 255, .85);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
-}
-.hp-herox-txt { flex: 1 1 auto; }
-.hp-pill {
-    display: inline-block; background: rgba(255, 255, 255, .22);
-    color: #FFFFFF; font-size: .78rem; font-weight: 600;
-    letter-spacing: .06em; text-transform: uppercase;
-    border-radius: 999px; padding: .3rem .9rem; margin: 0 0 .9rem 0;
-}
-.hp-herox h1 {
+.hp-screen h1 {
     font-size: clamp(2rem, 4.5vw, 3rem); font-weight: 800;
-    color: #FFFFFF; margin: 0; line-height: 1.15;
+    color: #1F2937; margin: 0; line-height: 1.15;
 }
-.hp-herox p {
-    color: rgba(255, 255, 255, .92);
-    font-size: clamp(1rem, 2vw, 1.12rem); margin: .9rem 0 0 0;
+.hp-screen p {
+    color: #6B7280; font-size: clamp(1rem, 2vw, 1.12rem);
+    margin: .9rem 0 0 0;
+}
+.hp-screen-img { flex: 0 0 44%; }
+.hp-screen-img img {
+    width: 100%; height: 52vh; object-fit: cover; display: block;
+    border-radius: 22px; box-shadow: 0 8px 24px rgba(0, 0, 0, .10);
 }
 @media (max-width: 640px) {
-    .hp-herox { flex-direction: column; padding: 2rem 1.4rem; }
-    .hp-herox-img { flex-basis: auto; width: 100%; }
+    .hp-screen { flex-direction: column; gap: 1.2rem; }
+    .hp-screen-img { flex-basis: auto; width: 100%; order: -1; }
+    .hp-screen-img img { height: 30vh; }
 }
-.hp-arrow {
-    width: 48px; height: 48px; border-radius: 50%;
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    color: #FFFFFF; font-size: 1.4rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
-}
-
-/* Landing sections + feature cards with hover lift. */
-.hp-section {
-    text-align: center; font-size: 1.5rem; font-weight: 800;
-    color: #1F2937; margin: 2.6rem 0 1.2rem 0;
-}
-.hp-feat {
-    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 22px;
-    padding: 1.4rem 1.1rem; text-align: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
-    transition: transform .15s ease, box-shadow .15s ease;
-}
-.hp-feat:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, .10);
-}
-.hp-num {
-    width: 2.2rem; height: 2.2rem; border-radius: 50%;
-    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
-    color: #FFFFFF; font-weight: 800;
-    font-size: 1.05rem; display: flex; align-items: center;
-    justify-content: center; margin: 0 auto .6rem auto;
-}
-
-/* Landing closing band + footer. */
-.hp-cta {
-    background: #1F2937; border-radius: 22px;
-    margin: 2.6rem 0 1.2rem 0; padding: 2.6rem 1.5rem 2.2rem 1.5rem;
-    text-align: center;
-}
-.hp-cta h2 { color: #FFFFFF; margin: 0; }
 .hp-footer {
     text-align: center; color: #6B7280; font-size: .8rem;
-    margin: 0 0 1rem 0;
+    margin: 1.2rem 0 0 0;
 }
 
 /* Big voice card + gradient round mic + tall full-width recorder. */
@@ -338,6 +298,16 @@ _HIDE_SIDEBAR = """
 <style>
 [data-testid="stSidebar"] { display: none; }
 [data-testid="stSidebarCollapsedControl"] { display: none; }
+</style>
+"""
+
+# Landing only: the one screen fills the viewport and sits centered
+# in it (injected on the home screen, never on the planner).
+_HOME_CENTER = """
+<style>
+[data-testid="stMainBlockContainer"] > div[data-testid="stVerticalBlock"] {
+    min-height: 100vh; min-height: 100dvh; justify-content: center;
+}
 </style>
 """
 
@@ -787,94 +757,26 @@ st.markdown(_STYLE_SAAS, unsafe_allow_html=True)
 _SCREEN = st.session_state.get("screen", "home")
 if _SCREEN == "home":
     st.markdown(_HIDE_SIDEBAR, unsafe_allow_html=True)
-    # Top nav: logo left, Start button right.
-    nav_logo, nav_btn = st.columns([5, 1])
-    with nav_logo:
-        st.markdown('<p class="hp-logo">House Planner</p>',
-                    unsafe_allow_html=True)
-    with nav_btn:
-        nav_go = st.button("Start planning", key="nav_start",
-                           type="primary", use_container_width=True)
-    # Hero: house image + label + headline, pill CTA below.
+    st.markdown(_HOME_CENTER, unsafe_allow_html=True)
+    # One screen: logo, image + text side by side, one button, footer.
+    st.markdown('<p class="hp-logo">House Planner</p>',
+                unsafe_allow_html=True)
     st.markdown(
-        '<div class="hp-herox">'
-        '<div class="hp-herox-img">%s</div>'
-        '<div class="hp-herox-txt">'
-        '<span class="hp-pill">Plan - Render - Download</span>'
+        '<div class="hp-screen">'
+        '<div class="hp-screen-txt">'
+        '<span class="hp-pill-solid">Plan - Render - Download</span>'
         "<h1>Design Your Home Smarter</h1>"
         "<p>Enter your plot and family needs. Get three layouts, "
         "a colored render and a DXF file.</p>"
-        "</div></div>" % _hero_img_tag(),
+        "</div>"
+        '<div class="hp-screen-img">%s</div>'
+        "</div>" % _hero_img_tag(),
         unsafe_allow_html=True)
-    _cta_l, cta_mid, _cta_r = st.columns([1, 2, 1])
-    with cta_mid:
-        arrow_col, hero_btn_col = st.columns([1, 5])
-        with arrow_col:
-            st.markdown('<div class="hp-arrow">\u2192</div>',
-                        unsafe_allow_html=True)
-        with hero_btn_col:
-            hero_go = st.button("Start planning", key="hero_start",
-                                type="primary", use_container_width=True)
-    # Feature cards.
-    st.markdown('<h2 class="hp-section">Everything you need to review '
-                "a concept</h2>", unsafe_allow_html=True)
-    feat1, feat2, feat3, feat4 = st.columns(4)
-    with feat1:
-        st.markdown(
-            '<div class="hp-feat">%s'
-            '<div class="hp-step-title">3 layout options</div>'
-            '<p class="hp-step-text">Three distinct concepts to '
-            "compare</p></div>" % _ICON_PLAN, unsafe_allow_html=True)
-    with feat2:
-        st.markdown(
-            '<div class="hp-feat">%s'
-            '<div class="hp-step-title">Smart room placement</div>'
-            '<p class="hp-step-text">Rooms sized and placed by clear '
-            "rules</p></div>" % _ICON_CHECK, unsafe_allow_html=True)
-    with feat3:
-        st.markdown(
-            '<div class="hp-feat">%s'
-            '<div class="hp-step-title">Colored render</div>'
-            '<p class="hp-step-text">A presentation-ready top-down '
-            "view</p></div>" % _ICON_IMAGE, unsafe_allow_html=True)
-    with feat4:
-        st.markdown(
-            '<div class="hp-feat">%s'
-            '<div class="hp-step-title">DXF for CAD</div>'
-            '<p class="hp-step-text">Open every plan in your CAD '
-            "app</p></div>" % _ICON_FILE, unsafe_allow_html=True)
-    # How it works: 3 numbered steps.
-    st.markdown('<h2 class="hp-section">How it works</h2>',
-                unsafe_allow_html=True)
-    land1, land2, land3 = st.columns(3)
-    with land1:
-        st.markdown(
-            '<div class="hp-feat"><div class="hp-num">1</div>'
-            '<div class="hp-step-title">Describe your plot</div>'
-            '<p class="hp-step-text">Plot size plus family needs '
-            "and wishes</p></div>", unsafe_allow_html=True)
-    with land2:
-        st.markdown(
-            '<div class="hp-feat"><div class="hp-num">2</div>'
-            '<div class="hp-step-title">Get 3 plan options</div>'
-            '<p class="hp-step-text">Three layouts ready to '
-            "review</p></div>", unsafe_allow_html=True)
-    with land3:
-        st.markdown(
-            '<div class="hp-feat"><div class="hp-num">3</div>'
-            '<div class="hp-step-title">Render or download</div>'
-            '<p class="hp-step-text">Colored render or DXF '
-            "file</p></div>", unsafe_allow_html=True)
-    # Closing band + footer.
-    st.markdown('<div class="hp-cta"><h2>Ready to see your '
-                "plans?</h2></div>", unsafe_allow_html=True)
-    _cta_l, cta_c, _cta_r = st.columns([1, 1, 1])
-    with cta_c:
-        cta_go = st.button("Start planning", key="cta_start",
-                           type="primary", use_container_width=True)
+    home_go = st.button("Start planning", key="home_start",
+                        type="primary")
     st.markdown('<p class="hp-footer">Concept only - not for '
                 "construction</p>", unsafe_allow_html=True)
-    if nav_go or hero_go or cta_go:
+    if home_go:
         st.session_state["screen"] = "planner"
         st.rerun()
     st.stop()
