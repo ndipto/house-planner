@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+from ai_activity import timed
 from ai_program import BASE_URL, get_api_key
 
 VOICE_MODEL = "muse-voice-transcribe-1.0"
@@ -172,21 +173,22 @@ def transcribe_audio(audio_bytes, api_key=None, session_id=None):
                  "Content-Type": content_type,
                  "Accept": "application/json"},
         method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(_http_hint(exc.code))
-    except Exception as exc:
-        raise RuntimeError(
-            "Muse Voice could not transcribe this (%s). Check your "
-            "connection and API key, then try again."
-            % str(exc)[:160])
-    text = data.get("transcript", "") if isinstance(data, dict) else ""
-    if not str(text).strip():
-        raise RuntimeError(
-            "Muse Voice returned no transcript; please try again.")
-    return str(text).strip()
+    with timed(VOICE_MODEL, "Muse Voice Transcribe", "Voice brief"):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(_http_hint(exc.code))
+        except Exception as exc:
+            raise RuntimeError(
+                "Muse Voice could not transcribe this (%s). Check your "
+                "connection and API key, then try again."
+                % str(exc)[:160])
+        text = data.get("transcript", "") if isinstance(data, dict) else ""
+        if not str(text).strip():
+            raise RuntimeError(
+                "Muse Voice returned no transcript; please try again.")
+        return str(text).strip()
 
 
 def _http_hint(code):

@@ -290,6 +290,27 @@ _STYLE_SAAS = """
    menu bar and branding stay hidden. */
 [data-testid="stHeader"] { background-color: transparent; }
 [data-testid="stHeader"] [data-testid="stToolbar"] { display: none; }
+
+/* AI activity card: rows of dot + model + task + duration. */
+.hp-act {
+    background: #FFFFFF; border: 1px solid #ECEEF2; border-radius: 14px;
+    padding: .8rem .9rem; margin-top: .8rem;
+}
+.hp-act-title {
+    font-family: 'Poppins', 'Inter', sans-serif;
+    font-weight: 700; font-size: .95rem; color: #1F2937; margin: 0;
+}
+.hp-act-sub { color: #6B7280; font-size: .78rem; margin: 0 0 .5rem 0; }
+.hp-act-row {
+    display: flex; align-items: center; gap: .45rem;
+    font-size: .82rem; color: #1F2937; padding: .18rem 0;
+}
+.hp-act-row b { font-weight: 700; }
+.hp-act-dur { margin-left: auto; color: #6B7280; white-space: nowrap; }
+.hp-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.hp-dot-done { background: #22C55E; }
+.hp-dot-retried { background: #F59E0B; }
+.hp-dot-failed { background: #EF4444; }
 </style>
 """
 
@@ -748,6 +769,39 @@ def _options_sentence(count):
     return (head + " 'Needs review' means this option is worth "
             "a second look - the reason is shown under that option.")
 
+
+def _activity_entries():
+    """Stored activity entries (newest last), or [] outside runs."""
+    try:
+        return list(st.session_state.get("ai_activity") or [])
+    except Exception:
+        return []
+
+
+def _activity_card():
+    """Compact 'AI activity' card HTML, or "" when nothing ran yet."""
+    entries = _activity_entries()
+    if not entries:
+        return ""
+    dots = {"done": "hp-dot-done", "retried": "hp-dot-retried",
+            "failed": "hp-dot-failed"}
+    rows = []
+    for row in reversed(entries):
+        try:
+            duration = "%.1f s" % float(row.get("seconds", 0))
+        except (TypeError, ValueError):
+            duration = "? s"
+        rows.append(
+            '<div class="hp-act-row"><span class="hp-dot %s"></span>'
+            "<b>%s</b><span>%s</span>"
+            '<span class="hp-act-dur">%s</span></div>'
+            % (dots.get(row.get("status"), "hp-dot-done"),
+               row.get("label", "?"), row.get("task", "?"), duration))
+    return (
+        '<div class="hp-act"><div class="hp-act-title">AI activity</div>'
+        '<p class="hp-act-sub">Live calls to Meta models</p>%s</div>'
+        % "".join(rows))
+
 # --- Screen router: landing first, planner on "Start planning" ---
 # Both style blocks load on every screen; the landing hides the
 # sidebar and stops before the planner code below. Switching screens
@@ -851,7 +905,8 @@ with st.sidebar:
         # below (set before the widget exists, so no rerun warning).
         heard = voice_note.getvalue()
         if st.session_state.get("voice_digest") != hash(heard):
-            with st.spinner("Listening to your recording..."):
+            with st.spinner("Muse Voice Transcribe is typing your "
+                                "brief..."):
                 try:
                     said = transcribe_audio(heard)
                 except Exception as err:
@@ -861,6 +916,9 @@ with st.sidebar:
             if said:
                 st.session_state["in_wishes"] = said
                 st.rerun()
+    if any(row.get("task") == "Voice brief"
+           for row in _activity_entries()):
+        st.markdown(_activity_card(), unsafe_allow_html=True)
     wishes = st.text_area(
         "Family needs and wishes (plain words)",
         placeholder="Example: home office, big kitchen for family gatherings, elderly parent on ground floor",
@@ -909,7 +967,7 @@ if generate_pressed:
                  "file, then try again.")
         st.stop()
     # While waiting, show a spinner so the page does not look frozen.
-    with st.spinner("Reading your brief and shaping the rooms..."):
+    with st.spinner("Muse Spark is building the room program..."):
         try:
             result = get_room_program(
                 frontage_ft, depth_ft, road_side,
@@ -995,8 +1053,8 @@ if _has_results(st.session_state):
                                          MAX_RENDERS):
                         st.info(DEMO_LIMIT_MESSAGE)
                     else:
-                        with st.spinner("Making a presentation render of "
-                                        "this plan..."):
+                        with st.spinner("Muse Image is rendering the "
+                                        "plan..."):
                             try:
                                 png, note = _render_option_plan(
                                     plot, opt, extra or "")
@@ -1014,6 +1072,9 @@ if _has_results(st.session_state):
                     mime="image/vnd.dxf",
                     key="dxf_%s" % opt["label"],
                     use_container_width=True)
+                activity = _activity_card()
+                if activity:
+                    st.markdown(activity, unsafe_allow_html=True)
             with plan_col:
                 st.markdown(_svg_for_option(plot, opt),
                             unsafe_allow_html=True)

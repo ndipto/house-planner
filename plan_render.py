@@ -45,6 +45,7 @@ import os
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
 
+from ai_activity import timed
 from ai_program import BASE_URL, MODEL_NAME
 from draw import svg_plan  # noqa: F401 (kept: same geometry source)
 from layout import SHORT_NAMES
@@ -822,12 +823,14 @@ def drift_check_png(raw_img, rooms, open_plan, glass, angle,
 
 
 def edit_image(plan_png, api_key=None, client=None, size=None,
-               prompt=None):
+               prompt=None, activity_mark="done"):
     """One Muse Image edit call; returns the raw PNG bytes.
 
     Pass client (an OpenAI client, real or fake) to skip key
     handling - used by tests. size defaults to the portrait
     canvas, prompt to the flat orthographic render prompt.
+    activity_mark labels the activity entry ("done", or "retried"
+    when render_plan_checked calls again after a failed check).
     """
     size = tuple(size) if size is not None else CANVAS
     prompt = prompt if prompt is not None else RENDER_PROMPT
@@ -837,23 +840,25 @@ def edit_image(plan_png, api_key=None, client=None, size=None,
             raise RuntimeError("META_API_KEY is missing, so no "
                                "render was made.")
         client = OpenAI(api_key=key, base_url=BASE_URL)
-    try:
-        result = client.images.edit(
-            model=IMAGE_MODEL, prompt=prompt,
-            image=("plan.png", plan_png, "image/png"),
-            size="%dx%d" % size, n=1)
-    except TypeError:  # older openai client: file object only
-        result = client.images.edit(
-            model=IMAGE_MODEL, prompt=prompt,
-            image=io.BytesIO(plan_png), n=1)
-    item = result.data[0]
-    if getattr(item, "b64_json", None):
-        return base64.b64decode(item.b64_json)
-    if getattr(item, "url", None):
-        import urllib.request
-        with urllib.request.urlopen(item.url, timeout=60) as resp:
-            return resp.read()
-    raise RuntimeError("Muse Image returned no image")
+    with timed(IMAGE_MODEL, "Muse Image", "Plan render",
+               mark=activity_mark):
+        try:
+            result = client.images.edit(
+                model=IMAGE_MODEL, prompt=prompt,
+                image=("plan.png", plan_png, "image/png"),
+                size="%dx%d" % size, n=1)
+        except TypeError:  # older openai client: file object only
+            result = client.images.edit(
+                model=IMAGE_MODEL, prompt=prompt,
+                image=io.BytesIO(plan_png), n=1)
+        item = result.data[0]
+        if getattr(item, "b64_json", None):
+            return base64.b64decode(item.b64_json)
+        if getattr(item, "url", None):
+            import urllib.request
+            with urllib.request.urlopen(item.url, timeout=60) as resp:
+                return resp.read()
+        raise RuntimeError("Muse Image returned no image")
 
 
 CHECK_PROMPT = """You are checking an AI-rendered top-down \
@@ -888,13 +893,16 @@ Room list (names only, one per line):
 %s"""
 
 
-def check_render(final_png, rooms, api_key=None, client=None):
+def check_render(final_png, rooms, api_key=None, client=None,
+               activity_mark="done"):
     """Ask Muse Spark (vision) to check each room's furniture.
 
     final_png: the labeled render bytes. rooms: placement dicts
     with name/type. Returns {"rooms": {name: {"ok": bool,
     "seen": str}}, "all_ok": bool}. Raises RuntimeError when the
-    key is missing or the reply does not parse.
+    key is missing or the reply does not parse. activity_mark
+    labels the activity entry ("done", or "retried" on later
+    render_plan_checked attempts).
     """
     if client is None:
         key = (api_key or "").strip()
@@ -906,37 +914,41 @@ def check_render(final_png, rooms, api_key=None, client=None):
                        for r in rooms)
     data_url = "data:image/png;base64,%s" % base64.b64encode(
         final_png).decode("ascii")
-    try:
-        response = client.responses.create(
-            model=MODEL_NAME,
-            input=[{"role": "user", "content": [
-                {"type": "input_text",
-                 "text": CHECK_PROMPT % listed},
-                {"type": "input_image", "image_url": data_url}]}],
-            text={"format": {"type": "json_object"}},
-            # Spark reasons before answering (vision check uses
-            # ~2.5k reasoning tokens); the cap must leave room
-            # for the JSON verdict after the thinking.
-            max_output_tokens=8000)
-        raw = response.output_text
-    except AttributeError:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": CHECK_PROMPT % listed},
-                {"type": "image_url",
-                 "image_url": {"url": data_url}}]}],
-            response_format={"type": "json_object"})
-        raw = response.choices[0].message.content
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    try:
-        parsed = json.loads(text)
-        verdicts = parsed["rooms"]
-    except (ValueError, KeyError, TypeError):
-        raise RuntimeError("The checker reply did not parse as "
-                           "JSON: %s" % (raw or "")[:120])
+    with timed(MODEL_NAME, "Muse Spark", "Render check",
+               mark=activity_mark):
+        try:
+            response = client.responses.create(
+                model=MODEL_NAME,
+                input=[{"role": "user", "content": [
+                    {"type": "input_text",
+                     "text": CHECK_PROMPT % listed},
+                    {"type": "input_image",
+                     "image_url": data_url}]}],
+                text={"format": {"type": "json_object"}},
+                # Spark reasons before answering (vision check uses
+                # ~2.5k reasoning tokens); the cap must leave room
+                # for the JSON verdict after the thinking.
+                max_output_tokens=8000)
+            raw = response.output_text
+        except AttributeError:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": [
+                    {"type": "text",
+                     "text": CHECK_PROMPT % listed},
+                    {"type": "image_url",
+                     "image_url": {"url": data_url}}]}],
+                response_format={"type": "json_object"})
+            raw = response.choices[0].message.content
+        text = (raw or "").strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        try:
+            parsed = json.loads(text)
+            verdicts = parsed["rooms"]
+        except (ValueError, KeyError, TypeError):
+            raise RuntimeError("The checker reply did not parse as "
+                               "JSON: %s" % (raw or "")[:120])
     out = {}
     for item in verdicts:
         try:
@@ -983,8 +995,9 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
     plan_bytes = buf.getvalue()
     for _ in range(max_retries + 1):
         attempts += 1
+        mark = "done" if attempts == 1 else "retried"
         raw = edit_image(plan_bytes, api_key, client, target,
-                         prompt)
+                         prompt, activity_mark=mark)
         final = Image.open(io.BytesIO(raw)).convert("RGB")
         if final.size != target:
             final = final.resize(target)
@@ -995,7 +1008,7 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
         final_bytes = out.getvalue()
         try:
             check = check_render(final_bytes, rooms, api_key,
-                                 client)
+                                 client, activity_mark=mark)
         except Exception:
             if best is None:
                 return final_bytes, None, attempts

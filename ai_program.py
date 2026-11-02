@@ -17,6 +17,8 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from ai_activity import timed
+
 # Load the local .env file (if it exists) into environment variables.
 load_dotenv()
 
@@ -273,24 +275,28 @@ def _ask_model(client, system_prompt, messages):
     Both calls request structured JSON output so the reply parses.
     `messages` is a list of {"role": ..., "content": ...} dicts.
     """
-    # Attempt 1: Responses API with JSON output.
-    try:
-        response = client.responses.create(
-            model=MODEL_NAME,
-            input=messages,
-            text={"format": {"type": "json_object"}},
-        )
-        return response.output_text
-    except Exception:
-        # Attempt 2 (fallback): Chat Completions with JSON output.
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": m["role"], "content": m["content"]} for m in messages
-            ],
-            response_format={"type": "json_object"},
-        )
-        return response.choices[0].message.content
+    # One activity entry per ask (the chat fallback below is part
+    # of the same attempt, not a retry).
+    with timed(MODEL_NAME, "Muse Spark", "Room program"):
+        # Attempt 1: Responses API with JSON output.
+        try:
+            response = client.responses.create(
+                model=MODEL_NAME,
+                input=messages,
+                text={"format": {"type": "json_object"}},
+            )
+            return response.output_text
+        except Exception:
+            # Attempt 2 (fallback): Chat Completions with JSON output.
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": m["role"], "content": m["content"]}
+                    for m in messages
+                ],
+                response_format={"type": "json_object"},
+            )
+            return response.choices[0].message.content
 
 
 def _master_bedroom_name(rooms):
