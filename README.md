@@ -1,126 +1,128 @@
 # House Planner
 
-A concept house planner for Bangladesh, designed by an architect. A client
-describes their plot and their wishes in plain words; House Planner turns
-the brief into three concept floor plans — with solid walls, doors,
-windows, dimensions and a north arrow — each checked against the
-architect's own livability rules.
+**Concept floor plans in seconds.**
 
-Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026).
+House Planner turns a plot and a family's needs into three ready-to-review single-storey floor plans, each with walls, doors and windows, plain-language reasons, a colored render and a layered DXF file for CAD.
 
-## How it works
+![Example plan](docs/plan_45x55_south.png)
 
-1. **Brief → room program (AI).** Muse Spark reads the brief and returns
-   structured JSON: rooms, sizes, adjacencies, orientation wishes, plus a
-   short design reasoning in an architect's voice. Plain Python then
-   checks sizes, the toilet rule and the area budget.
-2. **Room program → layout (plain Python, no AI).** A typology placer
-   lays out THREE options (A/B/C) from planning patterns of the
-   architect's own practice: three-strip (public spine + side rooms),
-   two-strip for narrow plots, L-shape with court and shallow bands for
-   wide plots. Client wishes shape the plan and override zoning
-   (combined/open spaces, garden buffer, south-facing master even on the
-   road side). Geometry is a hard constraint: nothing ever lands outside
-   the buildable area.
-3. **Layout → drawing (our own SVG code).** Each option is drawn as a
-   clean black-on-white plan: 10 in exterior / 5 in interior walls, doors
-   with swing arcs, windows, room names, sizes, areas, dimensions, road
-   label and north arrow. Open-plan pairs share one open space (no wall).
-4. **Checker.** Every option is scored against 20 rules plus geometry G
-   and shown as 'All key rules met' or 'Needs review' (one plain
-   sentence per issue) — the same
-   door/window gaps the drawing shows are the ones the checker verifies,
-   so no rule stays unchecked.
+## What it does
+
+1. **Describe the plot:** road frontage, depth from the road, and which way north is.
+2. **Describe the family:** number of bedrooms and toilets, plus any wishes, typed or spoken ("parents live with us, we want a big dining area").
+3. **Get three different layouts** in seconds, drawn to scale with real walls, doors and windows.
+4. **Read why each plan works**, in plain language, with anything worth a second look flagged.
+5. **Render a plan** into a realistic top-down presentation image, or **download a layered DXF** that opens straight in CAD.
+
+## Why it matters
+
+When an architect starts designing a new home, working out the layout and drawing it up in CAD usually takes weeks. Clients, meanwhile, often can't picture a floor plan or explain what they want.
+
+- **Architects** get a sound starting layout and a CAD file on every project, so they spend their time on design instead of first drafts.
+- **Clients** get a picture to react to, which makes the first conversation much easier.
 
 ## Meta models used
 
-- **Muse Spark (`muse-spark-1.3`)** through the Meta Model API
-  (`https://api.meta.ai/v1`, OpenAI-compatible client) — brief to room
-  program, the only AI call in the pipeline. Placement, drawing and
-  checking are plain Python so every plan is reproducible and
-  rule-traceable.
-- **Muse Image (`muse-image-1.0`)** — one colored presentation
-  render per option, from a "Render this plan" button: an
-  annotated line plan goes out (walls, doors, windows, room
-  names + furniture outlines, cropped tight to the house and
-  padded only to a shape-matched size — landscape for wide
-  plans, portrait for tall, square for near-square), and comes
-  back as a flat top-down render from a strict prompt plus the
-  client's extra instructions, with room-name labels overlaid
-  and every room auto-checked by Muse Spark (retries twice,
-  keeps the best). Plan and render show side by side
-  ("AI presentation render - check against the plan"); a
-  "Regenerate" button re-renders on demand.
-- **Muse Voice Transcribe (`muse-voice-transcribe-1.0`)** — speak the
-  brief into the microphone; the transcript fills the wishes box
-  (code + mocked tests done, needs one live microphone test).
+Every AI call the app makes at runtime goes to a Meta model.
 
-## How to run it
+| Meta model | What it does in the app | File |
+| --- | --- | --- |
+| **Muse Spark** | Reads the brief and writes the room program: every room, its size and what it should sit next to, plus a short design explanation. | `ai_program.py` |
+| **Muse Spark** (vision) | Checks each render against the original plan, room by room: same layout, walls and doors, and the right furniture in each room. Its findings are sent back to Muse Image as corrections. | `plan_render.py` |
+| **Muse Image** | Turns the plan drawing into a realistic top-down render, and re-renders using Muse Spark's corrections when the check finds problems. | `plan_render.py` |
+| **Muse Voice Transcribe** | Turns the family's spoken brief into text. | `voice.py` |
+
+The app shows these calls live in an **AI activity** card, with each model, task and duration (`ai_activity.py`). Only metadata is recorded, never prompts, replies or keys.
+
+## Built with Muse Code
+
+I built House Planner with **Muse Code** during the hackathon (Oct 26 to Nov 4, 2026): Muse Code wrote the code under my direction, with a few small manual edits. `PROJECT.md` is the project memory Muse Code read at the start of every session.
+
+## How it works
+
+```
+Brief (typed or spoken)
+  -> Muse Voice Transcribe (if spoken)
+  -> Muse Spark: room program (rooms, sizes, adjacencies)
+  -> Layout engine: typologies, room sizes, adjacency, doors and windows
+  -> Three options + plain-language checks ("Why this plan works")
+  -> Optional: Muse Image render -> Muse Spark check -> corrected re-render
+  -> Layered DXF export
+```
+
+- **Layout engine** (`layout.py`, `typology.py`, `openings.py`): places rooms using house typologies (open living spine, bedrooms and wet areas on outer walls), fits them to the plot and road side, and adds doors and windows.
+- **Drawing and export** (`draw.py`, `dxf_export.py`): the plan drawing on screen, and a DXF in inches with separate layers for walls, doors, windows, labels, verandas and landscape.
+- **Stress tested** (`stress_grid.py`): 560 plot and family combinations ran through the full app path with no crashes. Plots that can't fit the brief get a friendly message instead of a broken plan.
+
+| Plan | Render |
+| --- | --- |
+| ![Plan](docs/plan_40x60_north.png) | ![Render](docs/render_example_1.jpg) |
+
+## Run it locally
+
+You need **Python 3.13** and a Meta Model API key.
 
 ```bash
+git clone https://github.com/ndipto/house-planner.git
+cd house-planner
+python -m venv .venv
+# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # then put your key in .env (never committed)
-streamlit run app.py        # open the local address it prints
 ```
 
-Run the checks (67 automated tests, no key needed; 65 green,
-2 known-stuck placer fails documented in NIGHT_REPORT.md):
+Copy `.env.example` to `.env` and put your key in it:
+
+```
+META_API_KEY=your-key-here
+```
+
+`.env` is git-ignored. Never commit your key.
+
+Start the app:
 
 ```bash
-python test_layout.py         # 38 placer/checker/drawing tests (T1-T8 + stress pair included)
-python test_render.py         # 3 mocked Muse Image tests
-python test_voice.py          # 3 mocked Muse Voice tests
-python test_plan_render.py    # 16 mocked render tests (faithful auto-check + shape/crop/extra)
-python test_dxf.py            # 7 DXF export tests (inches, colors, openings, veranda/landscape, roads, ASCII)
+streamlit run app.py
 ```
 
-Re-save the review set after placer/drawing changes:
+Then click **Start planning**, press **Try an example**, and click **Generate plans**.
+
+### Tests
 
 ```bash
-python save_review.py       # writes review/*.svg + review/NOTES.txt
+python test_layout.py       # layout engine, checks and drawing
+python test_plan_render.py  # render and render-check flow (mocked)
+python test_render.py       # Muse Image calls (mocked)
+python test_voice.py        # voice brief (mocked)
+python test_dxf.py          # DXF export
+python test_ai_activity.py  # AI activity log
 ```
 
-## Built during the hackathon (Oct 26 – Nov 4)
+Two layout tests are known to fail on edge cases and are documented in `NIGHT_REPORT.md`.
 
-From the git history:
+## Built during the hackathon
 
-- **Oct 29** — project spec + the architect's design rules; Day 1: brief
-  to room program with Muse Spark, area budget, feet-inch display;
-  Day 2 starts: room layout and plan drawing, then strict livability
-  checks (kitchen/bedroom/toilet exterior walls, circulation never
-  through kitchen/bedroom/toilet).
-- **Oct 30** — typology placer with 3 options; fit-to-plot, real toilet
-  sizes, wishes shape layout; road-relative inputs, wide plots,
-  orientation wishes; plot preview with rotatable north arrow; master
-  size + family-living hub + wishes override zoning; night queue:
-  T1–T6 regression set with review SVGs, then walls/doors/windows with a
-  real checker (zero unchecked rules).
-- **Oct 31** — architect review rounds 1+2 (rules 22–33, kitchen-dining
-  hard rule, T5 compact two-strip, T6 all livable, pantry stores);
-  night queue: kitchen-veranda variants (jali screen / side-back /
-  windowed), exterior concept renders with Muse Image, Streamlit Cloud
-  deploy guide, demo polish (example brief, one-line summaries,
-  friendly errors), voice brief with Muse Voice Transcribe.
-- **Nov 1** — wide-shallow plots (leftover width as garden/court,
-  dining-second retry, T7); foyer as a zone inside living + veranda
-  doors swinging out (rules 34–35); big-master-toilet wish (T8);
-  friendly verdict labels ('All key rules met'/'Needs review' with
-  plain sentences, OK/REVIEW review files); strict master-role swap
-  attempt per option; pre-deploy check; results kept in session
-  state; rendered floor plans with Muse Image (furniture outlines
-  + flat prompt + labels-only overlay + vision auto-check; a
-  simplified try proved unfaithful live, so the faithful path was
-  restored with shape-matched output and tight house crop),
-  wired into the app as "Render this plan" + "Regenerate"
-  with an extra-instructions box and side-by-side plan + render;
-  client-friendly wording everywhere (plain titles, wishes line,
-  design notes, "Architect's checklist" with Met / Not met /
-  Partly, no scores or rule numbers in front of the client).
+| Date | Milestone |
+| --- | --- |
+| Oct 29 | Project spec and design rules; brief to room program with Muse Spark |
+| Oct 29-30 | Layout engine, plan drawing, three typology options, walls, doors and windows |
+| Oct 30-31 | Design review rounds turned into layout rules; regression tests |
+| Oct 31 | Muse Image renders with automatic checks; voice brief with Muse Voice Transcribe |
+| Nov 1 | Client-friendly wording, faithful render path, layered DXF export |
+| Nov 2 | Stress test across 560 briefs; full interface redesign |
+| Nov 3 | AI activity card, image download, render check that compares layout with the plan and sends corrections, mobile layout |
 
-## Authorship note
+The full history is in the git log.
 
-The code was written with AI coding assistance (Muse Code) under my
-direction as the architect and designer: every zoning pattern, rule,
-size and threshold in this repository is my own practice, and every plan
-the app draws is checked against those rules. No API key is stored in
-this repository — bring your own Meta Model API key in a local `.env`.
+![Another example](docs/plan_50x70_west.png)
+
+## Current scope
+
+Built in one week, House Planner covers **single-storey houses in Bangladesh only**. Duplexes, apartments and commercial buildings are not supported.
+
+## Disclaimer
+
+House Planner produces **concept plans only**. They are not for construction. AI renders are experimental and may not match the plan exactly; the floor plan is the reliable drawing.
+
+## License
+
+See `LICENSE`.
