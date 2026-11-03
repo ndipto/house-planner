@@ -1078,6 +1078,14 @@ if _has_results(st.session_state):
                                 "not match the plan exactly. The floor "
                                 "plan is the reliable drawing; always "
                                 "check the render against it.")
+                    st.download_button(
+                        "Download image",
+                        data=cache[plan_key],
+                        file_name="house_plan_option_%s_render.png"
+                                  % opt["label"],
+                        mime="image/png",
+                        key="img_%s" % opt["label"],
+                        use_container_width=True)
                     if notes.get(plan_key):
                         st.caption(notes[plan_key])
     # ONE collapsed expander with everything else, for one option.
