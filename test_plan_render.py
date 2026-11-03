@@ -51,10 +51,12 @@ class _FakeImages:
         self.colors = list(colors)
         self.calls = 0
         self.last_kwargs = None
+        self.prompts = []
 
     def edit(self, **kwargs):
         self.calls += 1
         self.last_kwargs = dict(kwargs)
+        self.prompts.append(kwargs.get("prompt", ""))
         color = self.colors[min(self.calls - 1,
                                 len(self.colors) - 1)]
         raw = base64.b64encode(_png_bytes(color)).decode("ascii")
@@ -91,41 +93,67 @@ class _FakeClient:
 
 
 def _verdict(oks):
+    """Simple verdict: ok applies to layout AND furniture."""
     return json.dumps({"rooms": [
-        {"name": name, "ok": ok, "seen": "test furniture"}
+        {"name": name, "ok": ok, "layout_ok": ok,
+         "furniture_ok": ok,
+         "note": "" if ok else "%s test problem" % name}
         for name, ok in oks]})
+
+
+def _verdict_split(specs):
+    """Per-aspect verdict: (name, layout_ok, furniture_ok, note)."""
+    return json.dumps({"rooms": [
+        {"name": name, "ok": layout_ok and furniture_ok,
+         "layout_ok": layout_ok, "furniture_ok": furniture_ok,
+         "note": note}
+        for name, layout_ok, furniture_ok, note in specs]})
 
 
 def test_check_all_ok():
     client = _FakeClient(replies=[_verdict(
         [("Kitchen", True), ("Bedroom 1", True),
          ("Bath 1", True)])])
-    check = check_render(_png_bytes("white"), ROOMS,
+    check = check_render(_png_bytes("white"),
+                         _png_bytes("white"), ROOMS,
                          client=client)
     assert check["all_ok"], "all rooms ok"
     assert check["rooms"]["Kitchen"]["ok"], "kitchen ok"
+    assert check["rooms"]["Kitchen"]["layout_ok"], \
+        "layout verdict parsed"
+    assert check["rooms"]["Kitchen"]["furniture_ok"], \
+        "furniture verdict parsed"
+    assert check["layout_changed"] is False, \
+        "clean render keeps the layout"
     sent = client.responses.last_input
-    assert sent[0]["content"][1]["type"] == "input_image", \
-        "image sent as input_image block"
+    blocks = sent[0]["content"]
+    assert blocks[1]["type"] == "input_image", \
+        "plan sent as input_image block"
+    assert blocks[2]["type"] == "input_image", \
+        "render sent as a second input_image block"
     print("PASS test_check_all_ok")
 
 
 def test_check_flags_wrong_room():
     client = _FakeClient(replies=[_verdict(
         [("Kitchen", False), ("Bedroom 1", True)])])
-    check = check_render(_png_bytes("white"), ROOMS,
+    check = check_render(_png_bytes("white"),
+                         _png_bytes("white"), ROOMS,
                          client=client)
     assert not check["all_ok"], "one room fails"
     assert not check["rooms"]["Kitchen"]["ok"], "kitchen flagged"
     assert not check["rooms"]["Bath 1"]["ok"], \
         "missing verdict fails closed"
+    assert check["layout_changed"] is True, \
+        "a failed layout flags layout_changed"
     print("PASS test_check_flags_wrong_room")
 
 
 def test_check_bad_json_raises():
     client = _FakeClient(replies=["not json {"])
     try:
-        check_render(_png_bytes("white"), ROOMS, client=client)
+        check_render(_png_bytes("white"), _png_bytes("white"),
+                     ROOMS, client=client)
     except RuntimeError:
         print("PASS test_check_bad_json_raises")
         return
@@ -134,8 +162,8 @@ def test_check_bad_json_raises():
 
 def test_check_missing_key_raises():
     try:
-        check_render(_png_bytes("white"), ROOMS, api_key="",
-                     client=None)
+        check_render(_png_bytes("white"), _png_bytes("white"),
+                     ROOMS, api_key="", client=None)
     except RuntimeError:
         print("PASS test_check_missing_key_raises")
         return
@@ -199,6 +227,128 @@ def test_checker_error_keeps_first():
     assert check is None, "check is None on checker error"
     assert client.images.calls == 1, "one image call only"
     print("PASS test_checker_error_keeps_first")
+
+
+def test_check_sends_plan_and_render():
+    good = _verdict([("Kitchen", True), ("Bedroom 1", True),
+                     ("Bath 1", True)])
+    client = _FakeClient(replies=[good])
+    plan = _png_bytes("white")
+    final = _png_bytes("black")
+    check_render(plan, final, ROOMS, client=client)
+    blocks = client.responses.last_input[0]["content"]
+    assert len(blocks) == 3, "text plus two images"
+    assert blocks[0]["type"] == "input_text", "prompt first"
+    assert "TWO images" in blocks[0]["text"], \
+        "prompt explains the two images"
+    plan_url = "data:image/png;base64,%s" % base64.b64encode(
+        plan).decode("ascii")
+    final_url = "data:image/png;base64,%s" % base64.b64encode(
+        final).decode("ascii")
+    assert blocks[1]["image_url"] == plan_url, \
+        "first image is the clean plan"
+    assert blocks[2]["image_url"] == final_url, \
+        "second image is the render to check"
+    print("PASS test_check_sends_plan_and_render")
+
+
+def test_retry_prompt_carries_corrections():
+    bad = _verdict_split([
+        ("Kitchen", False, True,
+         "wall moved, room is smaller than in the plan"),
+        ("Bedroom 1", True, False, "sofa instead of a bed"),
+        ("Bath 1", True, True, "")])
+    good = _verdict([("Kitchen", True), ("Bedroom 1", True),
+                     ("Bath 1", True)])
+    client = _FakeClient(colors=["red", "green"],
+                         replies=[bad, good])
+    _final, check, attempts = render_plan_checked(
+        ROOMS, [], [], 180.0, 40.0, 60.0, "north",
+        max_retries=2, client=client)
+    assert attempts == 2, "one retry, got %d" % attempts
+    assert check["all_ok"], "second render passes"
+    first, second = client.images.prompts
+    assert "Fix these problems" not in first, \
+        "first attempt carries no corrections"
+    assert second.startswith(RENDER_PROMPT), \
+        "retry keeps the base prompt"
+    assert ("Fix these problems from the previous attempt; "
+            "keep every wall, door and room exactly as in "
+            "the plan: ") in second, "fix sentence appended"
+    assert ("Kitchen: wall moved, room is smaller than in "
+            "the plan") in second, "kitchen note reaches retry"
+    assert "Bedroom 1: sofa instead of a bed" in second, \
+        "bedroom note reaches retry"
+    print("PASS test_retry_prompt_carries_corrections")
+
+
+def test_retry_activity_label():
+    import plan_render
+
+    seen = []
+    real_timed = plan_render.timed
+
+    class _Spy:
+        def __init__(self, model_id, label, task, mark="done",
+                     _state=None):
+            seen.append((label, task, mark))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    bad = _verdict([("Kitchen", False), ("Bedroom 1", False),
+                    ("Bath 1", True)])
+    good = _verdict([("Kitchen", True), ("Bedroom 1", True),
+                     ("Bath 1", True)])
+    client = _FakeClient(colors=["red", "green"],
+                         replies=[bad, good])
+    plan_render.timed = _Spy
+    try:
+        render_plan_checked(
+            ROOMS, [], [], 180.0, 40.0, 60.0, "north",
+            max_retries=2, client=client)
+    finally:
+        plan_render.timed = real_timed
+    image_tasks = [task for label, task, _mark in seen
+                   if label == "Muse Image"]
+    assert image_tasks == ["Plan render",
+                           "Plan render (fixing 2 rooms)"], \
+        "retry entry names the failed rooms, got %s" % (
+            image_tasks,)
+    spark_tasks = {task for label, task, _mark in seen
+                   if label == "Muse Spark"}
+    assert spark_tasks == {"Render check"}, \
+        "check entries keep their label"
+    print("PASS test_retry_activity_label")
+
+
+def test_layout_failures_rank_worse():
+    tidy_furniture_bad = _verdict_split([
+        ("Kitchen", True, False, "counter missing"),
+        ("Bedroom 1", True, False, "sofa instead of a bed"),
+        ("Bath 1", True, True, "")])
+    moved_wall = _verdict_split([
+        ("Kitchen", False, True, "wall moved"),
+        ("Bedroom 1", True, True, ""),
+        ("Bath 1", True, True, "")])
+    client = _FakeClient(colors=["red", "green"],
+                         replies=[tidy_furniture_bad,
+                                  moved_wall])
+    final, check, attempts = render_plan_checked(
+        ROOMS, [], [], 180.0, 40.0, 60.0, "north",
+        max_retries=1, client=client)
+    assert attempts == 2, "both attempts run, got %d" % attempts
+    pixel = Image.open(io.BytesIO(final)).getpixel((512, 100))
+    assert pixel == (255, 0, 0), \
+        "keeps the layout-clean render (red), got %s" % (pixel,)
+    assert check["rooms"]["Kitchen"]["layout_ok"], \
+        "kept check is the layout-clean one"
+    assert not check["rooms"]["Kitchen"]["furniture_ok"], \
+        "kept check still flags the furniture"
+    print("PASS test_layout_failures_rank_worse")
 
 
 def test_simple_shapes():
@@ -343,6 +493,10 @@ def main():
     test_retry_then_pass()
     test_keeps_best_of_retries()
     test_checker_error_keeps_first()
+    test_check_sends_plan_and_render()
+    test_retry_prompt_carries_corrections()
+    test_retry_activity_label()
+    test_layout_failures_rank_worse()
     test_simple_shapes()
     test_simple_prompt_exact()
     test_simple_input_matches_plan()
@@ -351,7 +505,7 @@ def main():
     test_faithful_shape_matched()
     test_faithful_extra_in_prompt()
     test_faithful_tight_crop()
-    print("16/16 plan-render tests pass.")
+    print("20/20 plan-render tests pass.")
 
 
 if __name__ == "__main__":

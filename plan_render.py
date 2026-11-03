@@ -14,10 +14,14 @@
 # mode (POST /v1/images/edits, model muse-image-1.0) with a
 # strictly flat orthographic prompt (+ the client's extra
 # instructions); overlay_labels() draws room-name labels only on
-# the result; check_render() asks Muse Spark (vision) to verify
-# each room's furniture and render_plan_checked() retries at most
-# twice, keeping the best. Running the file directly renders T1-A
-# (tall) and WIDE-A (drawn landscape) into review/renders/.
+# the result; check_render() shows Muse Spark (vision) BOTH the
+# clean plan and the render and verifies each room's layout
+# (same place, shape, size, walls, doors) AND furniture, and
+# render_plan_checked() retries at most twice with a correction
+# note built from the failed rooms, keeping the best (a layout
+# problem ranks worse than a furniture problem). Running the
+# file directly renders T1-A (tall) and WIDE-A (drawn landscape)
+# into review/renders/.
 #
 # HISTORY: the simplified path (client-visible plan PNG in, one
 # Image call, no outlines/overlay/check) proved unfaithful live
@@ -823,14 +827,17 @@ def drift_check_png(raw_img, rooms, open_plan, glass, angle,
 
 
 def edit_image(plan_png, api_key=None, client=None, size=None,
-               prompt=None, activity_mark="done"):
+               prompt=None, activity_mark="done",
+               activity_task="Plan render"):
     """One Muse Image edit call; returns the raw PNG bytes.
 
     Pass client (an OpenAI client, real or fake) to skip key
     handling - used by tests. size defaults to the portrait
     canvas, prompt to the flat orthographic render prompt.
     activity_mark labels the activity entry ("done", or "retried"
-    when render_plan_checked calls again after a failed check).
+    when render_plan_checked calls again after a failed check);
+    activity_task names it ("Plan render", or "Plan render
+    (fixing N rooms)" on a correction retry).
     """
     size = tuple(size) if size is not None else CANVAS
     prompt = prompt if prompt is not None else RENDER_PROMPT
@@ -840,7 +847,7 @@ def edit_image(plan_png, api_key=None, client=None, size=None,
             raise RuntimeError("META_API_KEY is missing, so no "
                                "render was made.")
         client = OpenAI(api_key=key, base_url=BASE_URL)
-    with timed(IMAGE_MODEL, "Muse Image", "Plan render",
+    with timed(IMAGE_MODEL, "Muse Image", activity_task,
                mark=activity_mark):
         try:
             result = client.images.edit(
@@ -862,47 +869,64 @@ def edit_image(plan_png, api_key=None, client=None, size=None,
 
 
 CHECK_PROMPT = """You are checking an AI-rendered top-down \
-colored floor plan. Each room carries a printed label with its \
-name. For EVERY room in the list below, look at the furniture \
-drawn inside it and judge whether it matches the room type.
+colored floor plan against the clean line plan it was rendered \
+from. You receive TWO images: the FIRST is the clean line plan \
+(the reference - its room positions, shapes, sizes, walls and \
+door openings are correct); the SECOND is the colored render \
+to check, where each room carries a printed label with its \
+name. For EVERY room in the list below, judge (a) LAYOUT and \
+(b) FURNITURE.
 
-Mark a room ok=false when it holds furniture from another \
-room's job: a bed anywhere except a bedroom; kitchen counters, \
-stove or sink anywhere except the kitchen; a toilet or basin \
-anywhere except a bathroom; a dining table anywhere except \
-dining. Bedrooms must show a bed; the kitchen must show a \
-counter with stove or sink; bathrooms must show toilet \
-fixtures; living rooms and family living must show a sofa or \
-seating; stores and wardrobes must show shelves, boxes or a \
-closet; verandas and porches must show at most a small chair, \
-table or plants; the foyer should be near-empty (a small \
-console, a plant, or up to two small chairs is fine - fail \
-only on a bed, sofa, dining set, counter, or toilet/basin). \
-Small extras that belong to the room (fridge in kitchen, TV \
-in a living space, plants, extra chairs) are FINE and stay \
-ok=true.
+(a) LAYOUT: the room must sit in the same place with the same \
+shape and size as in the line plan, with the same walls and \
+door openings. Fail the layout when a wall moved, the room \
+grew or shrank, a door opening moved or vanished, or rooms \
+were merged, split, added or are missing.
+
+(b) FURNITURE: mark a room ok=false when it holds furniture \
+from another room's job: a bed anywhere except a bedroom; \
+kitchen counters, stove or sink anywhere except the kitchen; \
+a toilet or basin anywhere except a bathroom; a dining table \
+anywhere except dining. Bedrooms must show a bed; the kitchen \
+must show a counter with stove or sink; bathrooms must show \
+toilet fixtures; living rooms and family living must show a \
+sofa or seating; stores and wardrobes must show shelves, \
+boxes or a closet; verandas and porches must show at most a \
+small chair, table or plants; the foyer should be near-empty \
+(a small console, a plant, or up to two small chairs is fine \
+- fail only on a bed, sofa, dining set, counter, or \
+toilet/basin). Small extras that belong to the room (fridge \
+in kitchen, TV in a living space, plants, extra chairs) are \
+FINE and stay ok=true.
 
 Reply with JSON only: {"rooms": [{"name": "<exact room name, \
 copied character-for-character from the list>", "ok": true or \
-false, "seen": "<short description of the furniture you \
-see>"}]}. You MUST return one entry for EVERY room in the \
-list, including the rooms that pass - never skip a room and \
-never return only the failures.
+false, "layout_ok": true or false, "furniture_ok": true or \
+false, "note": "<short note of what is wrong, or empty when \
+the room passes>"}]}. A room is ok only when BOTH layout and \
+furniture pass. You MUST return one entry for EVERY room in \
+the list, including the rooms that pass - never skip a room \
+and never return only the failures.
 
 Room list (names only, one per line):
 %s"""
 
 
-def check_render(final_png, rooms, api_key=None, client=None,
-               activity_mark="done"):
-    """Ask Muse Spark (vision) to check each room's furniture.
+def check_render(plan_bytes, final_png, rooms, api_key=None,
+               client=None, activity_mark="done"):
+    """Ask Muse Spark (vision) to check each room's layout AND
+    furniture against the clean plan.
 
-    final_png: the labeled render bytes. rooms: placement dicts
-    with name/type. Returns {"rooms": {name: {"ok": bool,
-    "seen": str}}, "all_ok": bool}. Raises RuntimeError when the
-    key is missing or the reply does not parse. activity_mark
-    labels the activity entry ("done", or "retried" on later
-    render_plan_checked attempts).
+    plan_bytes: the clean line-plan PNG that was given to Muse
+    Image. final_png: the labeled render bytes. rooms: placement
+    dicts with name/type. Returns {"rooms": {name: {"ok": bool,
+    "layout_ok": bool, "furniture_ok": bool, "note": str}},
+    "all_ok": bool, "layout_changed": bool} - a room is ok only
+    when both layout and furniture pass, and layout_changed is
+    true when any room's layout differs from the plan. Raises
+    RuntimeError when the key is missing or the reply does not
+    parse. activity_mark labels the activity entry ("done", or
+    "retried" on later render_plan_checked attempts).
     """
     if client is None:
         key = (api_key or "").strip()
@@ -912,7 +936,9 @@ def check_render(final_png, rooms, api_key=None, client=None,
         client = OpenAI(api_key=key, base_url=BASE_URL)
     listed = "\n".join("- %s" % r.get("name", "?")
                        for r in rooms)
-    data_url = "data:image/png;base64,%s" % base64.b64encode(
+    plan_url = "data:image/png;base64,%s" % base64.b64encode(
+        plan_bytes).decode("ascii")
+    final_url = "data:image/png;base64,%s" % base64.b64encode(
         final_png).decode("ascii")
     with timed(MODEL_NAME, "Muse Spark", "Render check",
                mark=activity_mark):
@@ -923,7 +949,9 @@ def check_render(final_png, rooms, api_key=None, client=None,
                     {"type": "input_text",
                      "text": CHECK_PROMPT % listed},
                     {"type": "input_image",
-                     "image_url": data_url}]}],
+                     "image_url": plan_url},
+                    {"type": "input_image",
+                     "image_url": final_url}]}],
                 text={"format": {"type": "json_object"}},
                 # Spark reasons before answering (vision check uses
                 # ~2.5k reasoning tokens); the cap must leave room
@@ -937,7 +965,9 @@ def check_render(final_png, rooms, api_key=None, client=None,
                     {"type": "text",
                      "text": CHECK_PROMPT % listed},
                     {"type": "image_url",
-                     "image_url": {"url": data_url}}]}],
+                     "image_url": {"url": plan_url}},
+                    {"type": "image_url",
+                     "image_url": {"url": final_url}}]}],
                 response_format={"type": "json_object"})
             raw = response.choices[0].message.content
         text = (raw or "").strip()
@@ -952,21 +982,63 @@ def check_render(final_png, rooms, api_key=None, client=None,
     out = {}
     for item in verdicts:
         try:
+            base = bool(item.get("ok", False))
+            layout_ok = bool(item.get("layout_ok", base))
+            furniture_ok = bool(item.get("furniture_ok", base))
             out[str(item["name"])] = {
-                "ok": bool(item["ok"]),
-                "seen": str(item.get("seen", ""))}
-        except (KeyError, TypeError):
+                "ok": layout_ok and furniture_ok,
+                "layout_ok": layout_ok,
+                "furniture_ok": furniture_ok,
+                "note": str(item.get("note", item.get("seen",
+                                                     "")))}
+        except (KeyError, TypeError, AttributeError):
             continue
     for room in rooms:
         out.setdefault(str(room.get("name", "?")),
-                       {"ok": False, "seen": "not judged"})
+                       {"ok": False, "layout_ok": False,
+                        "furniture_ok": False,
+                        "note": "not judged"})
     return {"rooms": out,
-            "all_ok": all(v["ok"] for v in out.values())}
+            "all_ok": all(v["ok"] for v in out.values()),
+            "layout_changed": any(
+                not v["layout_ok"] for v in out.values())}
 
 
 def _check_score(check):
-    """Number of rooms judged ok (best-render ranking)."""
-    return sum(1 for v in check["rooms"].values() if v["ok"])
+    """Best-render ranking: rooms with a good layout first, then
+    rooms with good furniture. A layout problem ranks worse than
+    a furniture problem, so the kept image is the one whose walls
+    match the plan best."""
+    rooms = check["rooms"].values()
+    layout = sum(1 for v in rooms
+                 if v.get("layout_ok", v.get("ok", False)))
+    furniture = sum(1 for v in check["rooms"].values()
+                    if v.get("furniture_ok", v.get("ok", False)))
+    return (layout, furniture)
+
+
+def _correction_note(check):
+    """Short fix list from the failed rooms ("Kitchen: wall
+    moved ...; Bedroom 2: sofa instead of a bed"), for the next
+    attempt's prompt. Rooms without a note get a plain fallback
+    naming the kind of problem."""
+    parts = []
+    for name, verdict in check["rooms"].items():
+        if verdict.get("ok", False):
+            continue
+        note = str(verdict.get("note", "")).strip()
+        if not note:
+            if not verdict.get("layout_ok", True):
+                note = "differs from the plan"
+            else:
+                note = "wrong furniture"
+        parts.append("%s: %s" % (name, note))
+    return "; ".join(parts)
+
+
+FIX_PREFIX = ("Fix these problems from the previous attempt; "
+              "keep every wall, door and room exactly as in "
+              "the plan: ")
 
 
 def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
@@ -979,25 +1051,36 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
     square); the client's extra instructions are appended to
     the flat prompt. Returns (final_png_bytes, check,
     attempts). At most max_retries re-renders after a failed
-    check; the kept image is the one with the most rooms ok.
-    A checker error keeps the first render with check=None
-    instead of burning retries on the checker.
+    check, each retry carrying a correction note built from the
+    failed rooms ("Fix these problems ...: Kitchen: ..."); the
+    kept image ranks layout problems as worse than furniture
+    problems. A checker error keeps the first render with
+    check=None instead of burning retries on the checker.
     """
     best, best_check, attempts = None, None, 0
     target = SIMPLE_SIZES[simple_shape(plot_w, plot_d, road)]
-    prompt = RENDER_PROMPT
+    base_prompt = RENDER_PROMPT
     if str(extra or "").strip():
-        prompt = prompt + " " + str(extra).strip()
+        base_prompt = base_prompt + " " + str(extra).strip()
     plan = draw_plan_png(rooms, open_plan, glass, angle, plot_w,
                          plot_d, road, target)
     buf = io.BytesIO()
     plan.save(buf, format="PNG")
     plan_bytes = buf.getvalue()
+    prompt = base_prompt
+    fixing = 0  # failed rooms on the previous attempt
     for _ in range(max_retries + 1):
         attempts += 1
         mark = "done" if attempts == 1 else "retried"
+        if attempts == 1:
+            task = "Plan render"
+        elif fixing == 1:
+            task = "Plan render (fixing 1 room)"
+        else:
+            task = "Plan render (fixing %d rooms)" % fixing
         raw = edit_image(plan_bytes, api_key, client, target,
-                         prompt, activity_mark=mark)
+                         prompt, activity_mark=mark,
+                         activity_task=task)
         final = Image.open(io.BytesIO(raw)).convert("RGB")
         if final.size != target:
             final = final.resize(target)
@@ -1007,8 +1090,9 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
         final.save(out, format="PNG")
         final_bytes = out.getvalue()
         try:
-            check = check_render(final_bytes, rooms, api_key,
-                                 client, activity_mark=mark)
+            check = check_render(plan_bytes, final_bytes, rooms,
+                                 api_key, client,
+                                 activity_mark=mark)
         except Exception:
             if best is None:
                 return final_bytes, None, attempts
@@ -1018,6 +1102,11 @@ def render_plan_checked(rooms, open_plan, glass, angle, plot_w,
             best, best_check = final_bytes, check
         if check["all_ok"]:
             return best, best_check, attempts
+        fixing = sum(1 for v in check["rooms"].values()
+                     if not v.get("ok", False))
+        note = _correction_note(check)
+        if note:
+            prompt = base_prompt + " " + FIX_PREFIX + note
     return best, best_check, attempts
 
 
