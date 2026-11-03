@@ -12,7 +12,8 @@ import re
 import streamlit as st
 
 st.set_page_config(layout="wide", page_title="House Planner",
-                   page_icon="🏠")
+                   page_icon="🏠",
+                   initial_sidebar_state="expanded")
 
 logger = logging.getLogger("house_planner")
 
@@ -280,10 +281,42 @@ _STYLE_SAAS = """
     text-transform: uppercase; color: #FF6B4A !important;
 }
 
-/* Transparent header: the sidebar toggle keeps working while the
-   menu bar and branding stay hidden. */
+/* Transparent header: the menu bar and branding stay hidden,
+   but the sidebar expand button (the only way back into the
+   inputs once the sidebar is closed - the default on phones)
+   stays visible as a big orange round button. The button lives
+   INSIDE the toolbar, so the toolbar hides with visibility
+   (which a child can override) instead of display:none (which
+   no child can escape). The header is an absolute overlay, so
+   this moves no page content on desktop. */
 [data-testid="stHeader"] { background-color: transparent; }
-[data-testid="stHeader"] [data-testid="stToolbar"] { display: none; }
+[data-testid="stToolbar"] { visibility: hidden; }
+[data-testid="stExpandSidebarButton"] {
+    visibility: visible !important;
+    position: fixed; top: 0.75rem; left: 0.75rem; z-index: 999;
+    display: flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; min-width: 48px; min-height: 48px;
+    padding: 0; border: none; border-radius: 50%;
+    background: linear-gradient(135deg, #FF8A3D, #FF5E62);
+    color: #FFFFFF; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
+}
+[data-testid="stExpandSidebarButton"]:hover {
+    background: #F2553A;
+}
+[data-testid="stExpandSidebarButton"] svg,
+[data-testid="stExpandSidebarButton"] span {
+    color: #FFFFFF !important; fill: #FFFFFF !important;
+}
+
+/* Phone-only hint above the planner step cards. */
+.hp-mobile-hint { display: none; }
+@media (max-width: 768px) {
+    .hp-mobile-hint {
+        display: block; text-align: center; color: #6B7280;
+        font-size: .9rem; margin: 0 0 1rem 0;
+    }
+}
 
 /* AI activity card: rows of dot + model + task + duration. */
 .hp-act {
@@ -309,10 +342,14 @@ _STYLE_SAAS = """
 """
 
 # Landing only: no sidebar at all (injected on the home screen).
+# The expand button lives in the header toolbar, outside the
+# sidebar, so it needs its own rule (both the current testid and
+# the pre-1.66 one, in case Cloud ever serves another build).
 _HIDE_SIDEBAR = """
 <style>
 [data-testid="stSidebar"] { display: none; }
 [data-testid="stSidebarCollapsedControl"] { display: none; }
+[data-testid="stExpandSidebarButton"] { display: none !important; }
 </style>
 """
 
@@ -1159,6 +1196,12 @@ if _has_results(st.session_state):
     st.caption("Concept only - not for construction.")
 else:
     # Before generating: three clean step cards + one example plan.
+    # The hint shows on phones only (CSS media query); on desktop
+    # the sidebar sits open next to the cards, so it stays hidden.
+    st.markdown(
+        '<p class="hp-mobile-hint">Tap the orange button at the '
+        "top left to enter your plot details</p>",
+        unsafe_allow_html=True)
     step1, step2, step3 = st.columns(3)
     with step1:
         st.markdown(

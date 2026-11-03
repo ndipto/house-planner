@@ -999,6 +999,45 @@ def test_hero_asset_committed():
     print("PASS test_hero_asset_committed")
 
 
+def test_mobile_sidebar_reachable():
+    """Phones can open the sidebar: the expand button (which lives
+    inside the header toolbar) stays visible as a 44px+ orange
+    button, the toolbar/menu/footer/branding stay hidden, the
+    sidebar opens by default, and a phone-only hint points at the
+    button above the planner step cards."""
+    import app
+
+    css = app._STYLE_SAAS
+    assert "[data-testid=\"stToolbar\"] { visibility: hidden; }" \
+        in css, "toolbar hides with visibility, not display:none"
+    assert "[data-testid=\"stHeader\"] [data-testid=\"stToolbar\"]" \
+        not in css, "no display:none ancestor may swallow the button"
+    for bit in ("[data-testid=\"stExpandSidebarButton\"]",
+                "visibility: visible", "min-width: 48px",
+                "min-height: 48px", "border-radius: 50%",
+                "#FF8A3D", "top: 0.75rem; left: 0.75rem"):
+        assert bit in css, "expand button rule keeps %s" % bit
+    assert css.count("{") == css.count("}"), \
+        "style block braces balance (a typo kills all styling)"
+    for bit in ("#MainMenu", "footer", "[data-testid=\"stDecoration\"]",
+                "[data-testid=\"stHeader\"] { background-color: "
+                "transparent; }"):
+        assert bit in app._STYLE + css, \
+            "menu/footer/branding/header still hidden: %s" % bit
+    assert "[data-testid=\"stExpandSidebarButton\"] " \
+        "{ display: none !important; }" in app._HIDE_SIDEBAR, \
+        "landing keeps no sidebar control at all"
+    assert "@media (max-width: 768px)" in css, \
+        "phone-only breakpoint for the hint"
+    src = open(app.__file__, encoding="utf-8").read()
+    assert "initial_sidebar_state=\"expanded\"" in src, \
+        "inputs open by default on entering the planner"
+    assert "Tap the orange button at the " in src \
+        and "top left to enter your plot details" in src, \
+        "hint text above step cards"
+    print("PASS test_mobile_sidebar_reachable")
+
+
 def test_master_swap_helper():
     """_try_master_swap: largest takes the master name, baths follow."""
     rects = [
@@ -1567,6 +1606,7 @@ if __name__ == "__main__":
     test_why_it_works_sentences()
     test_empty_defaults_and_missing_fields()
     test_hero_asset_committed()
+    test_mobile_sidebar_reachable()
     test_no_pending_rules()
     test_doors_windows_placed()
     test_door_bearing_nudge()
